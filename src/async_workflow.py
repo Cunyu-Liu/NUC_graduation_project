@@ -1,0 +1,558 @@
+"""异步工作流引擎 - v4.0院士版
+支持异步、批量、智能调度的论文分析工作流
+"""
+import asyncio
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Callable
+from enum import Enum
+import aiofiles
+from pathlib import Path
+
+from src.db_manager import DatabaseManager
+from src.pdf_parser_enhanced import EnhancedPDFParser, ParsedPaper
+from src.prompts_doctoral import get_summary_prompt_doctoral, get_keypoint_prompt_doctoral
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+
+
+class WorkflowState(Enum):
+    """工作流状态"""
+    UPLOADED = "uploaded"
+    PARSED = "parsed"
+    ANALYZING = "analyzing"
+    ANALYZED = "analyzed"
+    GRAPH_BUILDING = "graph_building"
+    INSIGHT_GENERATING = "insight_generating"
+    CODE_GENERATING = "code_generating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class AsyncWorkflowEngine:
+    """异步工作流引擎"""
+
+    def __init__(self, db_manager: DatabaseManager, llm_config: Dict[str, Any] = None):
+        """
+        初始化工作流引擎
+
+        Args:
+            db_manager: 数据库管理器
+            llm_config: LLM配置
+        """
+        self.db = db_manager
+
+        # 初始化LLM
+        llm_config = llm_config or {}
+        self.llm = ChatOpenAI(
+            model=llm_config.get('model', 'glm-4-plus'),
+            api_key=llm_config.get('api_key'),
+            base_url=llm_config.get('base_url'),
+            temperature=0.3,
+            max_tokens=8000,
+            request_timeout=60
+        )
+
+        # PDF解析器
+        self.pdf_parser = EnhancedPDFParser(extract_tables=True, extract_figures=True)
+
+        # 并发控制
+        self.max_concurrent_analyses = llm_config.get('max_concurrent', 5)
+        self.semaphore = asyncio.Semaphore(self.max_concurrent_analyses)
+
+    async def execute_paper_workflow(
+        self,
+        pdf_path: str,
+        tasks: List[str] = None,
+        auto_generate_code: bool = True
+    ) -> Dict[str, Any]:
+        """
+        执行完整的论文分析工作流
+
+        Args:
+            pdf_path: PDF文件路径
+            tasks: 要执行的任务列表
+            auto_generate_code: 是否自动生成代码
+
+        Returns:
+            Dict: 工作流执行结果
+        """
+        if tasks is None:
+            tasks = ['summary', 'keypoints', 'topic', 'gaps', 'graph', 'code']
+
+        result = {
+            'pdf_path': pdf_path,
+            'workflow_id': datetime.now().strftime('%Y%m%d_%H%M%S'),
+            'tasks_completed': [],
+            'tasks_failed': [],
+            'start_time': datetime.now().isoformat()
+        }
+
+        try:
+            # 步骤1: 上传和解析
+            print(f"\n[1/6] 解析PDF: {Path(pdf_path).name}")
+            paper = await self._parse_pdf_async(pdf_path)
+
+            # 保存到数据库
+            paper_record = self._save_paper_to_db(paper)
+            result['paper_id'] = paper_record.id
+
+            # 步骤2: 异步分析（并发执行多个任务）
+            print(f"\n[2/6] 开始分析...")
+            analysis_result = await self._analyze_paper_async(
+                paper_record.id,
+                paper,
+                tasks=tasks
+            )
+            result['analysis_id'] = analysis_result['analysis_id']
+            result['tasks_completed'].extend(analysis_result['completed'])
+            result['tasks_failed'].extend(analysis_result['failed'])
+
+            # 步骤3: 构建知识图谱
+            if 'graph' in tasks:
+                print(f"\n[3/6] 构建知识图谱...")
+                await self._build_knowledge_graph_async(paper_record.id)
+
+            # 步骤4: 生成洞察
+            if 'gaps' in tasks:
+                print(f"\n[4/6] 生成研究洞察...")
+                gaps = await self._generate_insights_async(paper_record.id)
+                result['gaps_count'] = len(gaps)
+
+                # 步骤5: 自动生成代码
+                if auto_generate_code and gaps:
+                    print(f"\n[5/6] 自动生成代码...")
+                    code_results = await self._generate_code_for_gaps_async(
+                        paper_record.id, gaps[:3]  # 生成前3个空白的代码
+                    )
+                    result['code_generated'] = len(code_results)
+
+            # 步骤6: 完成
+            print(f"\n[6/6] ✓ 工作流完成！")
+            result['status'] = 'completed'
+            result['end_time'] = datetime.now().isoformat()
+
+            # 计算耗时
+            start = datetime.fromisoformat(result['start_time'])
+            end = datetime.fromisoformat(result['end_time'])
+            result['duration'] = (end - start).total_seconds()
+
+        except Exception as e:
+            print(f"\n✗ 工作流失败: {e}")
+            result['status'] = 'failed'
+            result['error'] = str(e)
+            result['end_time'] = datetime.now().isoformat()
+
+        return result
+
+    async def _parse_pdf_async(self, pdf_path: str) -> ParsedPaper:
+        """异步解析PDF"""
+        # 在线程池中执行阻塞的PDF解析
+        loop = asyncio.get_event_loop()
+        paper = await loop.run_in_executor(
+            None,
+            self.pdf_parser.parse_pdf,
+            pdf_path
+        )
+        return paper
+
+    def _save_paper_to_db(self, paper: ParsedPaper):
+        """保存论文到数据库"""
+        paper_data = {
+            'title': paper.metadata.title,
+            'abstract': paper.metadata.abstract,
+            'pdf_path': paper.filename,
+            'pdf_hash': self._calculate_file_hash(paper.filename),
+            'year': paper.metadata.year,
+            'venue': paper.metadata.publication_venue,
+            'doi': paper.metadata.doi,
+            'page_count': paper.page_count,
+            'language': paper.language,
+            'metadata': {
+                'authors': paper.metadata.authors,
+                'keywords': paper.metadata.keywords,
+                'sections_count': len(paper.metadata.sections),
+                'references_count': len(paper.metadata.references),
+                'tables_count': len(paper.tables),
+                'figures_count': len(paper.figures)
+            },
+            'authors': [{'name': name} for name in paper.metadata.authors],
+            'keywords': paper.metadata.keywords
+        }
+
+        return self.db.create_paper(paper_data)
+
+    async def _analyze_paper_async(
+        self,
+        paper_id: int,
+        paper: ParsedPaper,
+        tasks: List[str]
+    ) -> Dict[str, Any]:
+        """异步分析论文"""
+        # 创建分析记录
+        analysis_data = {
+            'paper_id': paper_id,
+            'status': 'analyzing'
+        }
+        analysis = self.db.create_analysis(analysis_data)
+
+        completed = []
+        failed = []
+
+        # 并发执行分析任务
+        async def run_task(task_name: str, task_func: Callable):
+            async with self.semaphore:  # 限制并发数
+                try:
+                    print(f"  - 执行任务: {task_name}")
+                    result = await task_func(paper)
+                    print(f"    ✓ 完成: {task_name}")
+                    return task_name, result, None
+                except Exception as e:
+                    print(f"    ✗ 失败: {task_name} - {e}")
+                    return task_name, None, str(e)
+
+        # 准备任务
+        task_funcs = {}
+        if 'summary' in tasks:
+            task_funcs['summary'] = self._generate_summary_async
+        if 'keypoints' in tasks:
+            task_funcs['keypoints'] = self._extract_keypoints_async
+        if 'topic' in tasks:
+            task_funcs['topic'] = self._analyze_topic_async
+
+        # 并发执行
+        results = await asyncio.gather(
+            *[run_task(name, func) for name, func in task_funcs.items()],
+            return_exceptions=False
+        )
+
+        # 收集结果
+        update_data = {
+            'status': 'completed',
+            'llm_calls': len(results),
+            'tokens_used': 0
+        }
+
+        for task_name, task_result, error in results:
+            if error:
+                failed.append(task_name)
+            else:
+                completed.append(task_name)
+                # 更新分析数据
+                if task_name == 'summary' and task_result:
+                    update_data['summary_text'] = task_result.get('summary', '')
+                elif task_name == 'keypoints' and task_result:
+                    update_data['keypoints'] = task_result
+                elif task_name == 'topic' and task_result:
+                    update_data['topic_analysis'] = task_result
+
+        # 更新分析记录
+        update_data['updated_at'] = datetime.utcnow()
+        self.db.update_analysis(analysis.id, update_data)
+
+        return {
+            'analysis_id': analysis.id,
+            'completed': completed,
+            'failed': failed
+        }
+
+    async def _generate_summary_async(self, paper: ParsedPaper) -> Dict[str, str]:
+        """异步生成摘要"""
+        prompt = self._prepare_summary_prompt(paper)
+
+        # 在线程池中执行LLM调用
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            self.llm.invoke,
+            [HumanMessage(content=prompt)]
+        )
+
+        return {
+            'summary': response.content,
+            'word_count': len(response.content.split())
+        }
+
+    async def _extract_keypoints_async(self, paper: ParsedPaper) -> Dict[str, List[str]]:
+        """异步提取要点"""
+        prompt = self._prepare_keypoint_prompt(paper)
+
+        # 在线程池中执行LLM调用
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            self.llm.invoke,
+            [HumanMessage(content=prompt)]
+        )
+
+        # 解析JSON
+        keypoints = self._parse_keypoints_json(response.content)
+
+        return keypoints
+
+    async def _analyze_topic_async(self, paper: ParsedPaper) -> Dict[str, Any]:
+        """异步主题分析"""
+        # 简化实现
+        return {
+            'topics': paper.metadata.keywords[:10],
+            'field': self._infer_field(paper.metadata.keywords)
+        }
+
+    async def _build_knowledge_graph_async(self, paper_id: int):
+        """异步构建知识图谱"""
+        # 在实际实现中，这里应该：
+        # 1. 分析参考文献，建立引用关系
+        # 2. 使用相似度计算建立主题关联
+        # 3. 检测方法继承关系
+        pass  # 简化实现
+
+    async def _generate_insights_async(self, analysis_id: int) -> List[Dict[str, Any]]:
+        """异步生成研究洞察"""
+        analysis = self.db.get_analysis(analysis_id)
+        if not analysis:
+            return []
+
+        # 从分析结果中提取研究空白
+        keypoints = analysis.keypoints or {}
+        gaps_data = keypoints.get('research_gaps', [])
+
+        gaps = []
+        for gap_desc in gaps_data:
+            gap = self.db.create_research_gap({
+                'analysis_id': analysis_id,
+                'gap_type': 'methodological',  # 简化
+                'description': gap_desc,
+                'importance': 'medium',
+                'difficulty': 'medium',
+                'status': 'identified'
+            })
+            gaps.append(gap)
+
+        return gaps
+
+    async def _generate_code_for_gaps_async(
+        self,
+        paper_id: int,
+        gaps: List,
+        max_concurrent: int = 3
+    ) -> List[Dict[str, Any]]:
+        """异步为研究空白生成代码"""
+        from src.code_generator import CodeGenerator
+
+        code_gen = CodeGenerator(llm=self.llm)
+
+        async def generate_for_gap(gap):
+            try:
+                print(f"    生成代码: {gap.description[:50]}...")
+                code_data = await code_gen.generate_code_async(gap)
+
+                # 保存到数据库
+                code_data['gap_id'] = gap.id
+                generated_code = self.db.create_generated_code(code_data)
+
+                # 更新gap状态
+                self.db.create_research_gap({
+                    'id': gap.id,
+                    'generated_code_id': generated_code.id,
+                    'status': 'code_generating'
+                })
+
+                return {'gap_id': gap.id, 'code_id': generated_code.id}
+            except Exception as e:
+                print(f"      代码生成失败: {e}")
+                return {'gap_id': gap.id, 'error': str(e)}
+
+        # 并发生成（限制并发数）
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def limited_generate(gap):
+            async with semaphore:
+                return await generate_for_gap(gap)
+
+        results = await asyncio.gather(
+            *[limited_generate(gap) for gap in gaps],
+            return_exceptions=False
+        )
+
+        return results
+
+    # ============================================================================
+    # 批量处理
+    # ============================================================================
+
+    async def batch_process_papers(
+        self,
+        pdf_paths: List[str],
+        tasks: List[str] = None
+    ) -> Dict[str, Any]:
+        """
+        批量处理论文
+
+        Args:
+            pdf_paths: PDF文件路径列表
+            tasks: 要执行的任务
+
+        Returns:
+            Dict: 批量处理结果
+        """
+        print(f"\n{'='*80}")
+        print(f"批量处理 {len(pdf_paths)} 篇论文")
+        print(f"{'='*80}\n")
+
+        start_time = datetime.now()
+
+        # 并发处理
+        results = await asyncio.gather(
+            *[self.execute_paper_workflow(pdf_path, tasks) for pdf_path in pdf_paths],
+            return_exceptions=True
+        )
+
+        # 统计结果
+        success_count = sum(1 for r in results if isinstance(r, dict) and r.get('status') == 'completed')
+        failure_count = len(results) - success_count
+
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        summary = {
+            'total': len(pdf_paths),
+            'success': success_count,
+            'failed': failure_count,
+            'duration': duration,
+            'avg_time': duration / len(pdf_paths) if pdf_paths else 0,
+            'results': results
+        }
+
+        print(f"\n{'='*80}")
+        print(f"批量处理完成: {success_count}/{len(pdf_paths)} 成功")
+        print(f"总耗时: {duration:.2f}秒, 平均: {summary['avg_time']:.2f}秒/篇")
+        print(f"{'='*80}\n")
+
+        return summary
+
+    # ============================================================================
+    # 辅助方法
+    # ============================================================================
+
+    def _prepare_summary_prompt(self, paper: ParsedPaper) -> str:
+        """准备摘要生成提示词"""
+        content = self._prepare_content(paper)
+        sections_text = "\n".join([
+            f"### {name}\n{content_part[:800]}"
+            for name, content_part in list(paper.metadata.sections.items())[:5]
+        ])
+
+        return get_summary_prompt_doctoral(
+            title=paper.metadata.title or paper.filename,
+            authors=", ".join(paper.metadata.authors[:5]),
+            publication=f"{paper.metadata.publication_venue} ({paper.metadata.year})",
+            abstract=paper.metadata.abstract or "未提取到摘要",
+            keywords=", ".join(paper.metadata.keywords[:10]),
+            sections=sections_text,
+            content=content
+        )
+
+    def _prepare_keypoint_prompt(self, paper: ParsedPaper) -> str:
+        """准备要点提取提示词"""
+        content = self._prepare_content(paper)
+        sections_text = "\n".join([
+            f"### {name}\n{content_part[:800]}"
+            for name, content_part in list(paper.metadata.sections.items())[:5]
+        ])
+
+        keywords_text = ", ".join(paper.metadata.keywords[:15]) if paper.metadata.keywords else "未提取到关键词"
+        references_text = "\n".join(paper.metadata.references[:10]) if paper.metadata.references else "未提取参考文献"
+
+        return get_keypoint_prompt_doctoral(
+            title=paper.metadata.title or paper.filename,
+            authors=", ".join(paper.metadata.authors[:5]),
+            publication=f"{paper.metadata.publication_venue} ({paper.metadata.year})",
+            abstract=paper.metadata.abstract or "未提取到摘要",
+            keywords=keywords_text,
+            sections=sections_text,
+            content=content,
+            references=references_text[:2000]
+        )
+
+    def _prepare_content(self, paper: ParsedPaper, max_chars: int = 10000) -> str:
+        """准备论文内容"""
+        content_parts = []
+
+        if paper.metadata.title:
+            content_parts.append(f"标题: {paper.metadata.title}")
+
+        if paper.metadata.abstract:
+            content_parts.append(f"摘要: {paper.metadata.abstract}")
+
+        for section_name, section_content in list(paper.metadata.sections.items())[:5]:
+            content_parts.append(f"\n{section_name}:\n{section_content[:1500]}")
+
+        combined = "\n\n".join(content_parts)
+
+        if len(combined) < max_chars:
+            remaining = max_chars - len(combined)
+            combined += f"\n\n正文片段:\n{paper.full_text[:remaining]}"
+
+        return combined[:max_chars]
+
+    def _parse_keypoints_json(self, response: str) -> Dict[str, List[str]]:
+        """解析要点JSON"""
+        import json
+
+        try:
+            if "```json" in response:
+                json_start = response.find("```json") + 7
+                json_end = response.find("```", json_start)
+                json_str = response[json_start:json_end].strip()
+            else:
+                json_str = response.strip()
+
+            keypoints = json.loads(json_str)
+
+            required_fields = [
+                "innovations", "research_gaps", "theoretical_framework",
+                "methods", "experimental_design", "datasets",
+                "conclusions", "statistical_analysis", "related_work_comparison",
+                "reproducibility", "contributions", "limitations"
+            ]
+
+            for field in required_fields:
+                if field not in keypoints:
+                    keypoints[field] = []
+
+            return keypoints
+
+        except Exception as e:
+            print(f"  JSON解析失败: {e}")
+            return {field: [] for field in [
+                "innovations", "research_gaps", "theoretical_framework",
+                "methods", "experimental_design", "datasets",
+                "conclusions", "statistical_analysis", "related_work_comparison",
+                "reproducibility", "contributions", "limitations"
+            ]}
+
+    def _infer_field(self, keywords: List[str]) -> str:
+        """推断研究领域"""
+        keyword_text = " ".join(keywords).lower()
+
+        field_keywords = {
+            "Computer Science": ["learning", "algorithm", "network", "data"],
+            "Medicine": ["clinical", "patient", "disease", "treatment"],
+            "Biology": ["gene", "protein", "cell", "molecular"],
+        }
+
+        for field, kw_list in field_keywords.items():
+            if any(kw in keyword_text for kw in kw_list):
+                return field
+
+        return "General"
+
+    def _calculate_file_hash(self, filepath: str) -> str:
+        """计算文件MD5哈希"""
+        import hashlib
+
+        md5_hash = hashlib.md5()
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                md5_hash.update(chunk)
+
+        return md5_hash.hexdigest()
