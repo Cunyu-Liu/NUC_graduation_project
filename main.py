@@ -1,401 +1,294 @@
-"""科研文献摘要提取系统 - 主程序入口"""
+"""命令行入口 v4.0 - 院士级科研智能助手"""
+import asyncio
 import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import List
 import click
+
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
-from rich.panel import Panel
-from rich import print as rprint
+from rich.progress import Progress
 
 from src.config import settings
-from src.pdf_parser import PDFParser, ParsedPaper
-from src.summary_generator import SummaryGenerator
-from src.keypoint_extractor import KeypointExtractor
-from src.topic_clustering import TopicClustering
+from src.db_manager import DatabaseManager
+from src.async_workflow import AsyncWorkflowEngine
+from src.code_generator import CodeGenerator
 
-# 初始化控制台
 console = Console()
 
-
-def print_banner():
-    """打印系统横幅"""
-    banner = """
-╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║        科研文献摘要提取系统 v1.0                              ║
-║        Research Paper Summary Extraction System               ║
-║                                                              ║
-║        基于 DeepSeek API 与 LangChain                        ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
-    """
-    console.print(Panel(banner, style="bold blue"))
-
+# ============================================================================
+# 数据库管理命令
+# ============================================================================
 
 @click.group()
 def cli():
-    """科研文献摘要提取系统 - 基于大语言模型的智能文献分析工具"""
-    print_banner()
+    """院士级科研智能助手 v4.0"""
+    pass
 
 
 @cli.command()
-@click.argument('pdf_file', type=click.Path(exists=True))
-@click.option('--output', '-o', type=click.Path(), help='输出文件路径')
-@click.option('--no-save', is_flag=True, help='不保存到文件，只显示结果')
-def parse(pdf_file: str, output: Optional[str], no_save: bool):
-    """
-    解析PDF文件并提取文本内容
-
-    PDF_FILE: 要解析的PDF文件路径
-    """
-    try:
-        with console.status("[bold green]正在解析PDF文件...", spinner="dots"):
-            parser = PDFParser()
-            paper = parser.parse_pdf(pdf_file)
-
-        # 显示解析结果
-        console.print(f"\n[bold green]✓[/bold green] 文件解析成功!")
-        console.print(f"\n文件名: {paper.filename}")
-        console.print(f"页数: {paper.page_count}")
-        console.print(f"总字符数: {len(paper.full_text)}")
-
-        # 显示元数据
-        if paper.metadata.title:
-            console.print(f"\n[bold]标题:[/bold] {paper.metadata.title}")
-
-        if paper.metadata.abstract:
-            console.print(f"\n[bold]摘要:[/bold]")
-            console.print(paper.metadata.abstract[:300] + "..." if len(paper.metadata.abstract) > 300 else paper.metadata.abstract)
-
-        if paper.metadata.keywords:
-            console.print(f"\n[bold]关键词:[/bold] {', '.join(paper.metadata.keywords)}")
-
-        if paper.metadata.sections:
-            console.print(f"\n[bold]章节:[/bold]")
-            for section_name in paper.metadata.sections.keys():
-                console.print(f"  - {section_name}")
-
-        # 保存结果
-        if not no_save:
-            output_path = Path(output) if output else settings.output_dir / f"{Path(pdf_file).stem}_parsed.txt"
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(f"文件名: {paper.filename}\n")
-                f.write(f"页数: {paper.page_count}\n")
-                f.write(f"\n{'='*60}\n\n")
-                f.write(f"标题: {paper.metadata.title}\n")
-                f.write(f"摘要: {paper.metadata.abstract}\n")
-                f.write(f"关键词: {', '.join(paper.metadata.keywords)}\n")
-                f.write(f"\n{'='*60}\n\n")
-                f.write("完整文本:\n\n")
-                f.write(paper.full_text)
-
-            console.print(f"\n[bold green]✓[/bold green] 解析结果已保存到: {output_path}")
-
-    except Exception as e:
-        console.print(f"\n[bold red]✗[/bold red] 解析失败: {e}", style="red")
-        sys.exit(1)
+def init_db():
+    """初始化数据库"""
+    console.print("\n[bold blue]初始化数据库...[/bold blue]")
+    db = DatabaseManager()
+    db.create_tables()
+    console.print("[green]✓ 数据库初始化成功[/green]")
 
 
 @cli.command()
-@click.argument('pdf_file', type=click.Path(exists=True))
-@click.option('--output', '-o', type=click.Path(), help='输出目录')
-@click.option('--model', '-m', help='使用的模型名称')
-@click.option('--temperature', '-t', type=float, help='温度参数')
-def summarize(pdf_file: str, output: Optional[str], model: Optional[str], temperature: Optional[float]):
-    """
-    生成论文摘要
+def stats():
+    """显示统计信息"""
+    db = DatabaseManager()
+    stats = db.get_statistics()
 
-    PDF_FILE: 要处理的PDF文件路径
-    """
-    try:
-        # 步骤1: 解析PDF
-        with console.status("[bold green]正在解析PDF文件...", spinner="dots"):
-            parser = PDFParser()
-            paper = parser.parse_pdf(pdf_file)
-        console.print("[bold green]✓[/bold green] PDF解析完成")
+    table = Table(title="系统统计信息")
+    table.add_column("指标", style="cyan")
+    table.add_column("数量", style="magenta")
 
-        # 步骤2: 生成摘要
-        console.print("[bold yellow]正在生成摘要...[/bold yellow]")
-        generator = SummaryGenerator(model=model, temperature=temperature)
+    for key, value in stats.items():
+        table.add_row(key, str(value))
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("调用LLM生成摘要...", total=None)
-            summary = generator.generate_summary(
-                paper,
-                save=True,
-                output_dir=Path(output) if output else None
-            )
+    console.print(table)
 
-        # 显示摘要
-        console.print(f"\n[bold green]✓[/bold green] 摘要生成成功!")
-        console.print(Panel(summary, title="生成的摘要", border_style="green"))
 
-        # 显示保存路径
-        output_dir = Path(output) if output else settings.summary_output_dir
-        output_path = output_dir / f"{Path(pdf_file).stem}_summary.txt"
-        console.print(f"\n[bold]摘要已保存到:[/bold] {output_path}")
-
-    except Exception as e:
-        console.print(f"\n[bold red]✗[/bold red] 处理失败: {e}", style="red")
-        sys.exit(1)
-
+# ============================================================================
+# 论文管理命令
+# ============================================================================
 
 @cli.command()
-@click.argument('pdf_file', type=click.Path(exists=True))
-@click.option('--output', '-o', type=click.Path(), help='输出目录')
-@click.option('--model', '-m', help='使用的模型名称')
-def extract(pdf_file: str, output: Optional[str], model: Optional[str]):
-    """
-    提取论文要点（创新点、方法、结论等）
+@click.argument('pdf_path', type=click.Path(exists=True))
+@click.option('--tasks', '-t', multiple=True, default=['summary', 'keypoints', 'gaps', 'code'],
+              help='要执行的任务')
+@click.option('--no-code', is_flag=True, help='不自动生成代码')
+def analyze(pdf_path: str, tasks: tuple, no_code: bool):
+    """分析单篇论文"""
+    console.print(f"\n[bold cyan]分析论文:[/bold cyan] {Path(pdf_path).name}")
 
-    PDF_FILE: 要处理的PDF文件路径
-    """
-    try:
-        # 步骤1: 解析PDF
-        with console.status("[bold green]正在解析PDF文件...", spinner="dots"):
-            parser = PDFParser()
-            paper = parser.parse_pdf(pdf_file)
-        console.print("[bold green]✓[/bold green] PDF解析完成")
+    db = DatabaseManager()
+    workflow = AsyncWorkflowEngine(db_manager=db)
 
-        # 步骤2: 提取要点
-        console.print("[bold yellow]正在提取核心要点...[/bold yellow]")
-        extractor = KeypointExtractor(model=model)
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("调用LLM提取要点...", total=None)
-            keypoints = extractor.extract_keypoints(
-                paper,
-                save=True,
-                output_dir=Path(output) if output else None
-            )
-
-        # 显示要点
-        console.print(f"\n[bold green]✓[/bold green] 要点提取成功!")
-
-        # 创建表格显示要点
-        field_names = {
-            "innovations": ("🔥", "核心创新点"),
-            "methods": ("🔧", "主要方法"),
-            "experiments": ("🧪", "实验设计"),
-            "conclusions": ("💡", "主要结论"),
-            "contributions": ("🎯", "学术贡献"),
-            "limitations": ("⚠️", "局限性")
-        }
-
-        for field, (icon, name) in field_names.items():
-            items = keypoints.get(field, [])
-            if items:
-                console.print(f"\n[bold]{icon} {name}[/bold]")
-                for i, item in enumerate(items, 1):
-                    console.print(f"  {i}. {item}")
-
-        # 显示保存路径
-        output_dir = Path(output) if output else settings.keypoints_output_dir
-        output_path = output_dir / f"{Path(pdf_file).stem}_keypoints.txt"
-        console.print(f"\n[bold]要点报告已保存到:[/bold] {output_path}")
-
-    except Exception as e:
-        console.print(f"\n[bold red]✗[/bold red] 处理失败: {e}", style="red")
-        sys.exit(1)
-
-
-@cli.command()
-@click.argument('pdf_files', nargs=-1, type=click.Path(exists=True))
-@click.option('--clusters', '-n', type=int, default=5, help='聚类数量')
-@click.option('--method', '-m', type=click.Choice(['kmeans', 'dbscan', 'hierarchical']), default='kmeans', help='聚类方法')
-@click.option('--language', '-l', type=click.Choice(['chinese', 'english']), default='chinese', help='论文语言')
-def cluster(pdf_files: tuple, clusters: int, method: str, language: str):
-    """
-    对多篇论文进行主题聚类分析
-
-    PDF_FILES: 要分析的PDF文件路径（可多个）
-    """
-    if len(pdf_files) < 2:
-        console.print("[bold red]✗[/bold red] 至少需要2篇论文才能进行聚类分析", style="red")
-        sys.exit(1)
-
-    try:
-        # 步骤1: 解析所有PDF
-        console.print(f"[bold yellow]正在解析 {len(pdf_files)} 篇论文...[/bold yellow]")
-        parser = PDFParser()
-        papers = []
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("解析PDF文件...", total=len(pdf_files))
-            for pdf_file in pdf_files:
-                try:
-                    paper = parser.parse_pdf(pdf_file)
-                    papers.append(paper)
-                    progress.update(task, advance=1)
-                except Exception as e:
-                    console.print(f"\n[bold yellow]⚠[/bold yellow] 跳过文件 {pdf_file}: {e}")
-
-        console.print(f"[bold green]✓[/bold green] 成功解析 {len(papers)} 篇论文")
-
-        if len(papers) < 2:
-            console.print("[bold red]✗[/bold red] 成功解析的论文数量不足2篇", style="red")
-            sys.exit(1)
-
-        # 步骤2: 执行聚类
-        console.print(f"[bold yellow]正在进行主题聚类 (方法={method}, 聚类数={clusters})...[/bold yellow]")
-        clustering = TopicClustering(
-            n_clusters=clusters,
-            clustering_method=method,
-            language=language
+    async def run():
+        result = await workflow.execute_paper_workflow(
+            pdf_path=pdf_path,
+            tasks=list(tasks),
+            auto_generate_code=not no_code
         )
 
-        results = clustering.cluster_papers(papers)
+        console.print("\n[green]✓ 分析完成[/green]")
+        console.print(f"  状态: {result['status']}")
+        console.print(f"  耗时: {result.get('duration', 0):.2f}秒")
 
-        # 显示聚类结果
-        console.print(f"\n[bold green]✓[/bold green] 聚类完成! 共发现 {results['unique_clusters']} 个主题类别")
+        if 'paper_id' in result:
+            console.print(f"  论文ID: {result['paper_id']}")
 
-        # 创建聚类信息表格
-        table = Table(title="\n聚类结果概览", show_header=True, header_style="bold magenta")
-        table.add_column("聚类ID", style="cyan", width=6)
-        table.add_column("论文数量", justify="center", style="green")
-        table.add_column("核心关键词", style="yellow")
+        if 'gaps_count' in result:
+            console.print(f"  研究空白: {result['gaps_count']}个")
 
-        for cluster_id, info in results['cluster_analysis'].items():
-            keywords_str = ", ".join(info['top_keywords'][:5])
-            table.add_row(
-                str(cluster_id),
-                str(info['paper_count']),
-                keywords_str
-            )
+        if 'code_generated' in result:
+            console.print(f"  生成代码: {result['code_generated']}个")
 
-        console.print(table)
-
-        # 显示保存路径
-        console.print(f"\n[bold]聚类可视化已保存到:[/bold] {settings.cluster_output_dir / 'cluster_visualization.png'}")
-        console.print(f"[bold]聚类报告已保存到:[/bold] {settings.cluster_output_dir / 'cluster_report.txt'}")
-
-    except Exception as e:
-        console.print(f"\n[bold red]✗[/bold red] 聚类失败: {e}", style="red")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    asyncio.run(run())
 
 
 @cli.command()
-@click.argument('pdf_file', type=click.Path(exists=True))
-@click.option('--output', '-o', type=click.Path(), help='输出目录')
-@click.option('--model', '-m', help='使用的模型名称')
-def analyze(pdf_file: str, output: Optional[str], model: Optional[str]):
-    """
-    完整分析：生成摘要 + 提取要点
+@click.argument('pdf_dir', type=click.Path(exists=True))
+@click.option('--pattern', '-p', default='*.pdf', help='文件匹配模式')
+@click.option('--limit', '-n', default=10, help='最大并发数')
+def batch(pdf_dir: str, pattern: str, limit: int):
+    """批量分析论文"""
+    pdf_dir = Path(pdf_dir)
+    pdf_files = list(pdf_dir.glob(pattern))
 
-    PDF_FILE: 要处理的PDF文件路径
-    """
-    try:
-        # 步骤1: 解析PDF
-        with console.status("[bold green]正在解析PDF文件...", spinner="dots"):
-            parser = PDFParser()
-            paper = parser.parse_pdf(pdf_file)
-        console.print("[bold green]✓[/bold green] PDF解析完成")
+    console.print(f"\n[bold cyan]批量分析:[/bold cyan] {len(pdf_files)} 篇论文")
 
-        # 步骤2: 生成摘要
-        console.print("[bold yellow]步骤 1/2: 正在生成摘要...[/bold yellow]")
-        generator = SummaryGenerator(model=model)
+    if not pdf_files:
+        console.print("[yellow]⚠ 未找到PDF文件[/yellow]")
+        return
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("调用LLM生成摘要...", total=None)
-            summary = generator.generate_summary(
-                paper,
-                save=True,
-                output_dir=Path(output) if output else None
-            )
+    db = DatabaseManager()
+    workflow = AsyncWorkflowEngine(db_manager=db)
 
-        console.print("[bold green]✓[/bold green] 摘要生成完成")
+    async def run():
+        summary = await workflow.batch_process_papers(
+            pdf_paths=[str(f) for f in pdf_files],
+            tasks=['summary', 'keypoints']
+        )
 
-        # 步骤3: 提取要点
-        console.print("[bold yellow]步骤 2/2: 正在提取要点...[/bold yellow]")
-        extractor = KeypointExtractor(model=model)
+        console.print("\n[green]✓ 批量分析完成[/green]")
+        console.print(f"  总数: {summary['total']}")
+        console.print(f"  成功: {summary['success']}")
+        console.print(f"  失败: {summary['failed']}")
+        console.print(f"  耗时: {summary['duration']:.2f}秒")
+        console.print(f"  平均: {summary['avg_time']:.2f}秒/篇")
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("调用LLM提取要点...", total=None)
-            keypoints = extractor.extract_keypoints(
-                paper,
-                save=True,
-                output_dir=Path(output) if output else None
-            )
+    asyncio.run(run())
 
-        console.print("[bold green]✓[/bold green] 要点提取完成")
 
-        # 显示结果摘要
-        console.print(f"\n[bold green]✓[/bold green] 完整分析成功!")
-        console.print(Panel(summary[:400] + "..." if len(summary) > 400 else summary, title="生成的摘要", border_style="green"))
+# ============================================================================
+# 数据库查询命令
+# ============================================================================
 
-        # 显示要点概览
-        console.print("\n[bold]核心要点:[/bold]")
-        console.print(f"  • 创新点: {len(keypoints.get('innovations', []))} 个")
-        console.print(f"  • 方法: {len(keypoints.get('methods', []))} 个")
-        console.print(f"  • 结论: {len(keypoints.get('conclusions', []))} 个")
+@cli.command()
+@click.option('--search', '-s', help='搜索关键词')
+@click.option('--limit', '-n', default=20, help='显示数量')
+def list(search: str, limit: int):
+    """列出论文"""
+    db = DatabaseManager()
+    papers = db.get_papers(search=search or '', limit=limit)
 
-        # 显示保存路径
-        output_dir = Path(output) if output else None
-        if output_dir:
-            console.print(f"\n[bold]结果已保存到:[/bold] {output_dir}")
-        else:
-            console.print(f"\n[bold]摘要已保存到:[/bold] {settings.summary_output_dir}")
-            console.print(f"[bold]要点已保存到:[/bold] {settings.keypoints_output_dir}")
+    table = Table(title=f"论文列表 ({len(papers)} 篇)")
+    table.add_column("ID", style="cyan")
+    table.add_column("标题", style="white")
+    table.add_column("年份", style="yellow")
+    table.add_column("发表场所", style="green")
 
-    except Exception as e:
-        console.print(f"\n[bold red]✗[/bold red] 处理失败: {e}", style="red")
-        sys.exit(1)
+    for paper in papers:
+        title = paper.title[:50] + "..." if len(paper.title) > 50 else paper.title
+        table.add_row(str(paper.id), title, str(paper.year or 'N/A'), paper.venue or 'N/A')
+
+    console.print(table)
 
 
 @cli.command()
-def config():
-    """显示当前配置"""
-    config_table = Table(title="系统配置", show_header=True, header_style="bold magenta")
-    config_table.add_column("配置项", style="cyan")
-    config_table.add_column("值", style="yellow")
+@click.argument('paper_id', type=int)
+def show(paper_id: int):
+    """显示论文详情"""
+    db = DatabaseManager()
+    paper = db.get_paper(paper_id)
 
-    config_table.add_row("DeepSeek API Key", f"{settings.deepseek_api_key[:10]}..." if settings.deepseek_api_key else "未设置")
-    config_table.add_row("Base URL", settings.deepseek_base_url)
-    config_table.add_row("模型", settings.default_model)
-    config_table.add_row("温度", str(settings.default_temperature))
-    config_table.add_row("最大Tokens", str(settings.max_tokens))
-    config_table.add_row("输出目录", str(settings.output_dir))
+    if not paper:
+        console.print("[red]✗ 论文不存在[/red]")
+        return
 
-    console.print(config_table)
+    console.print(f"\n[bold cyan]ID:[/bold cyan] {paper.id}")
+    console.print(f"[bold cyan]标题:[/bold cyan] {paper.title}")
+    console.print(f"[bold cyan]作者:[/bold cyan] {', '.join(paper.metadata.get('authors', [])[:5])}")
+    console.print(f"[bold cyan]年份:[/bold cyan] {paper.year}")
+    console.print(f"[bold cyan]发表场所:[/bold cyan] {paper.venue}")
+    console.print(f"[bold cyan]摘要:[/bold cyan]\n{paper.abstract[:300]}...")
 
-    # 检查API Key
-    if not settings.deepseek_api_key:
-        console.print("\n[bold red]⚠ 警告: 未设置DEEPSEEK_API_KEY环境变量[/bold red]")
-        console.print("请在 .env 文件中设置 DEEPSEEK_API_KEY")
+    # 显示分析历史
+    analyses = db.get_analyses_by_paper(paper_id)
+    if analyses:
+        console.print(f"\n[bold yellow]分析历史:[/bold yellow] {len(analyses)} 次")
+        for analysis in analyses:
+            console.print(f"  - {analysis.created_at}: {analysis.status}")
+
+
+@cli.command()
+@click.argument('paper_id', type=int)
+def delete(paper_id: int):
+    """删除论文"""
+    db = DatabaseManager()
+    success = db.delete_paper(paper_id)
+
+    if success:
+        console.print(f"[green]✓ 论文 {paper_id} 已删除[/green]")
     else:
-        console.print("\n[bold green]✓[/bold green] 系统配置正常")
+        console.print(f"[red]✗ 论文 {paper_id} 不存在[/red]")
 
 
-def main():
-    """主函数"""
+# ============================================================================
+# 代码生成命令
+# ============================================================================
+
+@cli.command()
+@click.argument('gap_id', type=int)
+@click.option('--strategy', '-s', default='method_improvement', help='代码生成策略')
+@click.option('--prompt', '-p', help='用户自定义提示')
+def generate_code(gap_id: int, strategy: str, prompt: str):
+    """生成代码"""
+    from src.database import ResearchGap
+
+    db = DatabaseManager()
+
+    gap = db.db_manager.query(ResearchGap).filter(
+        ResearchGap.id == gap_id
+    ).first()
+
+    if not gap:
+        console.print("[red]✗ 研究空白不存在[/red]")
+        return
+
+    console.print(f"\n[cyan]生成代码:[/cyan] {gap.description[:50]}...")
+
+    async def run():
+        generator = CodeGenerator(db_manager=db)
+        code_data = await generator.generate_code_async(
+            research_gap=gap,
+            strategy=strategy,
+            user_prompt=prompt
+        )
+
+        code_record = db.create_generated_code({
+            **code_data,
+            'gap_id': gap_id
+        })
+
+        console.print(f"[green]✓ 代码生成完成[/green]")
+        console.print(f"  代码ID: {code_record.id}")
+        console.print(f"  语言: {code_record.language}")
+        console.print(f"  框架: {code_record.framework}")
+        console.print(f"  质量评分: {code_record.quality_score:.2f}")
+        console.print(f"\n[bold]代码预览:[/bold]")
+        console.print(code_record.code[:500] + "...")
+
+    asyncio.run(run())
+
+
+@cli.command()
+@click.argument('code_id', type=int)
+@click.argument('prompt', type=str)
+def modify_code(code_id: int, prompt: str):
+    """修改代码"""
+    db = DatabaseManager()
+    generator = CodeGenerator(db_manager=db)
+
+    console.print(f"\n[cyan]修改代码:[/cyan] ID={code_id}")
+    console.print(f"[cyan]提示:[/cyan] {prompt}")
+
+    async def run():
+        updated = await generator.modify_code_async(
+            code_id=code_id,
+            user_prompt=prompt,
+            db_manager=db
+        )
+
+        console.print(f"[green]✓ 代码已更新到版本 {updated.current_version}[/green]")
+
+    asyncio.run(run())
+
+
+# ============================================================================
+# 知识图谱命令
+# ============================================================================
+
+@cli.command()
+@click.option('--paper-ids', '-p', help='论文ID列表（逗号分隔）')
+def graph(paper_ids: str):
+    """显示知识图谱"""
+    db = DatabaseManager()
+
+    if paper_ids:
+        ids = [int(id) for id in paper_ids.split(',')]
+        graph_data = db.get_paper_graph(paper_ids=ids)
+    else:
+        graph_data = db.get_paper_graph()
+
+    console.print(f"\n[bold cyan]知识图谱统计:[/bold cyan]")
+    console.print(f"  节点数: {len(graph_data['nodes'])}")
+    console.print(f"  边数: {len(graph_data['edges'])}")
+
+    # 显示关系类型
+    relation_types = {}
+    for edge in graph_data['edges']:
+        rel_type = edge['type']
+        relation_types[rel_type] = relation_types.get(rel_type, 0) + 1
+
+    console.print(f"\n[bold yellow]关系类型:[/bold yellow]")
+    for rel_type, count in relation_types.items():
+        console.print(f"  {rel_type}: {count}")
+
+
+if __name__ == '__main__':
     cli()
-
-
-if __name__ == "__main__":
-    main()

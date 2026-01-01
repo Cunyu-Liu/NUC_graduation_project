@@ -176,7 +176,7 @@ class DatabaseManager:
     def batch_delete_papers(self, paper_ids: List[int]) -> int:
         """批量删除论文"""
         with self.get_session() as session:
-            count = session.query(Paper).filter(Paper.id.in_(paper_ids)).delete(synchronize_session=False)
+            count = session.query(Paper).filter(Paper.id.in_(paper_ids)).delete()
             session.commit()
             print(f"  ✓ 批量删除 {count} 篇论文")
             return count

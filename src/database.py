@@ -1,7 +1,7 @@
 """数据库模型与ORM - v4.0院士版
 使用SQLAlchemy ORM，支持PostgreSQL
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy import (
     Column, Integer, String, Text, Float, Boolean,
@@ -41,8 +41,8 @@ class Paper(Base):
     metadata = Column(JSONB, default={})
 
     # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关系
     authors = relationship("PaperAuthor", back_populates="paper", cascade="all, delete-orphan")
@@ -94,7 +94,7 @@ class Author(Base):
     paper_count = Column(Integer, default=0)
     h_index = Column(Integer, default=0)  # 可以后续计算
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关系
     papers = relationship("PaperAuthor", back_populates="author", cascade="all, delete-orphan")
@@ -138,7 +138,7 @@ class Keyword(Base):
     paper_count = Column(Integer, default=0)
     trending_score = Column(Float, default=0.0)  # 热度分数
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关系
     papers = relationship("PaperKeyword", back_populates="keyword", cascade="all, delete-orphan")
@@ -196,8 +196,8 @@ class Analysis(Base):
     llm_calls = Column(Integer, default=0)  # LLM调用次数
     tokens_used = Column(Integer, default=0)  # 使用的token数
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关系
     paper = relationship("Paper", back_populates="analyses")
@@ -242,7 +242,7 @@ class ResearchGap(Base):
     generated_code_id = Column(Integer, ForeignKey('generated_code.id'))
     status = Column(String(50), default='identified')  # identified, code_generating, implemented, verified
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关系
     analysis = relationship("Analysis", back_populates="research_gaps")
@@ -296,8 +296,8 @@ class GeneratedCode(Base):
     status = Column(String(50), default='generated')  # generated, tested, optimized, deployed
     quality_score = Column(Float)  # 代码质量评分（0-1）
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关系
     research_gaps = relationship("ResearchGap", back_populates="generated_code")
@@ -338,7 +338,7 @@ class CodeVersion(Base):
     prompt = Column(Text)  # 生成此版本的提示词
     author = Column(String(50), default='AI')  # AI 或 User
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关系
     parent_code = relationship("GeneratedCode", back_populates="versions")
@@ -368,7 +368,7 @@ class Experiment(Base):
     status = Column(String(50), default='running')  # running, completed, failed
     duration = Column(Float)  # 运行时长（秒）
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime)
 
     # 关系
@@ -395,7 +395,7 @@ class Relation(Base):
     evidence = Column(Text)  # 证据描述
     metadata = Column(JSONB, default={})  # 额外信息
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关系
     source = relationship("Paper", foreign_keys=[source_id], back_populates="outgoing_relations")
@@ -447,7 +447,7 @@ class Task(Base):
     total_steps = Column(Integer)
 
     # 时间
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
     duration = Column(Float)  # 总耗时

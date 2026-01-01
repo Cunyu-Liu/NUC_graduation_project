@@ -20,6 +20,11 @@ const routes = [
     path: '/files',
     name: 'Files',
     component: () => import('@/views/Files.vue')
+  },
+  {
+    path: '/research-gaps',
+    name: 'ResearchGaps',
+    component: () => import('@/views/ResearchGaps.vue')
   }
 ]
 
