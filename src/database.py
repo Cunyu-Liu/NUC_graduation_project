@@ -38,7 +38,7 @@ class Paper(Base):
     language = Column(String(10), default='unknown')
 
     # 灵活存储所有元数据
-    metadata = Column(JSONB, default={})
+    meta_data = Column(JSONB, default={})
 
     # 时间戳
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -75,7 +75,7 @@ class Paper(Base):
             'doi': self.doi,
             'page_count': self.page_count,
             'language': self.language,
-            'metadata': self.metadata,
+            'metadata': self.meta_data,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -393,7 +393,7 @@ class Relation(Base):
     relation_type = Column(String(50), index=True)  # cites, extends, contradicts, applies, improves
     strength = Column(Float, default=0.5)  # 关系强度（0-1）
     evidence = Column(Text)  # 证据描述
-    metadata = Column(JSONB, default={})  # 额外信息
+    meta_data = Column(JSONB, default={})  # 额外信息
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -417,7 +417,7 @@ class Relation(Base):
             'relation_type': self.relation_type,
             'strength': self.strength,
             'evidence': self.evidence,
-            'metadata': self.metadata,
+            'metadata': self.meta_data,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
