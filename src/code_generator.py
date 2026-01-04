@@ -70,7 +70,7 @@ class CodeGenerator:
             db_manager: 数据库管理器
         """
         self.llm = llm or ChatOpenAI(
-            model='glm-4-plus',
+            model='glm-4-air',
             temperature=0.2,  # 代码生成需要较低温度
             max_tokens=16000
         )

@@ -115,7 +115,7 @@ cd ..
 ```bash
 # 必需配置
 export DATABASE_URL=postgresql://user:password@localhost:5432/literature_analysis
-export GLM_API_KEY=your_api_key
+export GLM_API_KEY=7f4095b43cf54abe91cbbdba62c3587b.BR1Zz4sMNuclLhG3
 
 # 可选配置
 export REDIS_HOST=localhost

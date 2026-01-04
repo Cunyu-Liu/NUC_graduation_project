@@ -2,7 +2,7 @@
 import gzip
 import json
 from functools import wraps
-from flask import request, response, after_this_request
+from flask import request, after_this_request
 import time
 
 

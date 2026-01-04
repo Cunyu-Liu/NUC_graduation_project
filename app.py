@@ -672,11 +672,11 @@ if __name__ == '__main__':
     print("\n" + "="*80)
     print("🚀 院士级科研智能助手 v4.1")
     print("="*80)
-    print(f"✓ 后端服务: http://localhost:5000")
+    print(f"✓ 后端服务: http://localhost:5001")
     print(f"✓ API版本: 4.0.0")
     print(f"✓ 数据库: PostgreSQL")
     print(f"✓ 支持异步: 是")
     print(f"✓ WebSocket: 启用")
     print("="*80 + "\n")
 
-    socketio.run(app, debug=True, port=5000, host='0.0.0.0')
+    socketio.run(app, debug=True, port=5001, host='0.0.0.0')
