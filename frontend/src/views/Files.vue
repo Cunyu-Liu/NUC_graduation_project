@@ -1,13 +1,14 @@
 <template>
   <div class="files">
-    <h2>文件管理</h2>
+    <h2>论文管理</h2>
 
     <el-card>
       <el-table :data="files" style="width: 100%">
-        <el-table-column prop="filename" label="文件名" />
-        <el-table-column prop="size" label="大小" :formatter="formatSize" />
-        <el-table-column prop="uploadedAt" label="上传时间" :formatter="formatTime" />
-        <el-table-column label="操作" width="300">
+        <el-table-column prop="title" label="论文标题" min-width="300" />
+        <el-table-column prop="year" label="年份" width="100" />
+        <el-table-column prop="venue" label="发表期刊/会议" width="200" />
+        <el-table-column prop="created_at" label="上传时间" :formatter="formatTime" width="180" />
+        <el-table-column label="操作" width="200">
           <template #default="scope">
             <el-button size="small" @click="analyzeFile(scope.row)">
               <i class="el-icon-video-play"></i> 分析
@@ -19,7 +20,7 @@
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="files.length === 0" description="暂无文件，请先上传" />
+      <el-empty v-if="files.length === 0" description="暂无论文，请先上传PDF文件" />
     </el-card>
   </div>
 </template>
@@ -38,22 +39,19 @@ export default {
 
     const files = computed(() => store.state.files)
 
-    const formatSize = (row, column, size) => {
-      return (size / 1024 / 1024).toFixed(2) + ' MB'
-    }
-
     const formatTime = (row, column, time) => {
+      if (!time) return '-'
       return new Date(time).toLocaleString('zh-CN')
     }
 
-    const analyzeFile = (file) => {
-      router.push({ path: '/analyze', query: { file: file.filename } })
+    const analyzeFile = (paper) => {
+      router.push({ path: '/analyze', query: { paperId: paper.id } })
     }
 
-    const deleteFile = async (file) => {
+    const deleteFile = async (paper) => {
       try {
         await ElMessageBox.confirm(
-          `确定要删除文件 "${file.filename}" 吗？`,
+          `确定要删除论文 "${paper.title || '未命名'}" 吗？`,
           '确认删除',
           {
             confirmButtonText: '确定',
@@ -62,7 +60,7 @@ export default {
           }
         )
 
-        const success = await store.dispatch('deleteFile', file.filename)
+        const success = await store.dispatch('deleteFile', paper.id)
         if (success) {
           ElMessage.success('删除成功')
         } else {
@@ -79,7 +77,6 @@ export default {
 
     return {
       files,
-      formatSize,
       formatTime,
       analyzeFile,
       deleteFile

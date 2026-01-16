@@ -1,4 +1,4 @@
-import { tagProps } from '../../tag/src/tag.mjs';
+import { tagProps } from '../../tag/src/tag2.mjs';
 import { CircleClose } from '@element-plus/icons-vue';
 import { buildProps, definePropType } from '../../../utils/vue/props/runtime.mjs';
 import { EVENT_CODE } from '../../../constants/aria.mjs';

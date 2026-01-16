@@ -4,8 +4,15 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 import fitz  # PyMuPDF
-import pdfplumber
 import json
+
+# 尝试导入 pdfplumber，如果失败则使用备用方案
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+    print("⚠️  pdfplumber 未安装，表格提取功能将受限。安装: pip install pdfplumber")
 
 
 @dataclass
@@ -200,6 +207,8 @@ class EnhancedPDFParser:
 
         except Exception as e:
             # 降级方案：使用pdfplumber
+            if not PDFPLUMBER_AVAILABLE:
+                raise Exception(f"PDF文本提取失败且pdfplumber未安装: {e}")
             try:
                 with pdfplumber.open(pdf_path) as pdf:
                     for page in pdf.pages:
@@ -575,6 +584,10 @@ class EnhancedPDFParser:
     def _extract_tables(self, pdf_path: Path) -> List[str]:
         """提取表格内容"""
         tables = []
+
+        if not PDFPLUMBER_AVAILABLE:
+            print("  ⚠️  pdfplumber 未安装，跳过表格提取")
+            return tables
 
         try:
             with pdfplumber.open(pdf_path) as pdf:

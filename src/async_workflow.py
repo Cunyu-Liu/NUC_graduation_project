@@ -11,8 +11,17 @@ from pathlib import Path
 from src.db_manager import DatabaseManager
 from src.pdf_parser_enhanced import EnhancedPDFParser, ParsedPaper
 from src.prompts_doctoral import get_summary_prompt_doctoral, get_keypoint_prompt_doctoral
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage
+
+# 尝试导入 langchain，如果没有安装则使用占位符
+try:
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import HumanMessage
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    print("⚠️  langchain_openai 未安装，LLM功能将受限")
+    LANGCHAIN_AVAILABLE = False
+    ChatOpenAI = None
+    HumanMessage = None
 
 
 class WorkflowState(Enum):
@@ -41,23 +50,41 @@ class AsyncWorkflowEngine:
         """
         self.db = db_manager
 
-        # 初始化LLM
+        # 初始化LLM（如果langchain可用）
         llm_config = llm_config or {}
-        self.llm = ChatOpenAI(
-            model=llm_config.get('model', 'glm-4-plus'),
-            api_key=llm_config.get('api_key'),
-            base_url=llm_config.get('base_url'),
-            temperature=0.3,
-            max_tokens=8000,
-            request_timeout=60
-        )
+        if LANGCHAIN_AVAILABLE and ChatOpenAI:
+            self.llm = ChatOpenAI(
+                model=llm_config.get('model', 'glm-4-plus'),
+                api_key=llm_config.get('api_key'),
+                base_url=llm_config.get('base_url'),
+                temperature=0.3,
+                max_tokens=8000,
+                request_timeout=60
+            )
+        else:
+            self.llm = None
+            print("⚠️  LLM功能未启用（langchain未安装）")
 
         # PDF解析器
         self.pdf_parser = EnhancedPDFParser(extract_tables=True, extract_figures=True)
 
-        # 并发控制
+        # 并发控制 - 延迟初始化semaphore
         self.max_concurrent_analyses = llm_config.get('max_concurrent', 5)
-        self.semaphore = asyncio.Semaphore(self.max_concurrent_analyses)
+        self._semaphore = None
+
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        """获取或创建semaphore（延迟初始化）"""
+        if self._semaphore is None:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    raise RuntimeError("Event loop is closed")
+                self._semaphore = asyncio.Semaphore(self.max_concurrent_analyses)
+            except RuntimeError:
+                # 如果没有运行中的事件循环，创建一个新的
+                self._semaphore = asyncio.Semaphore(self.max_concurrent_analyses)
+        return self._semaphore
 
     async def execute_paper_workflow(
         self,
@@ -257,6 +284,13 @@ class AsyncWorkflowEngine:
 
     async def _generate_summary_async(self, paper: ParsedPaper) -> Dict[str, str]:
         """异步生成摘要"""
+        if not self.llm or not LANGCHAIN_AVAILABLE:
+            print("⚠️  LLM未可用，无法生成摘要")
+            return {
+                'summary': "LLM功能未启用，无法生成摘要",
+                'word_count': 0
+            }
+
         prompt = self._prepare_summary_prompt(paper)
 
         # 在线程池中执行LLM调用
@@ -274,6 +308,15 @@ class AsyncWorkflowEngine:
 
     async def _extract_keypoints_async(self, paper: ParsedPaper) -> Dict[str, List[str]]:
         """异步提取要点"""
+        if not self.llm or not LANGCHAIN_AVAILABLE:
+            print("⚠️  LLM未可用，无法提取要点")
+            return {field: [] for field in [
+                "innovations", "research_gaps", "theoretical_framework",
+                "methods", "experimental_design", "datasets",
+                "conclusions", "statistical_analysis", "related_work_comparison",
+                "reproducibility", "contributions", "limitations"
+            ]}
+
         prompt = self._prepare_keypoint_prompt(paper)
 
         # 在线程池中执行LLM调用
@@ -361,7 +404,7 @@ class AsyncWorkflowEngine:
                 print(f"      代码生成失败: {e}")
                 return {'gap_id': gap.id, 'error': str(e)}
 
-        # 并发生成（限制并发数）
+        # 并发生成（限制并发数）- 使用当前运行中的事件循环
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def limited_generate(gap):

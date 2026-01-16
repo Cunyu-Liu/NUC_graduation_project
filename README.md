@@ -113,13 +113,17 @@ cd ..
 ### 3. 配置环境变量
 
 ```bash
-# 必需配置
-export DATABASE_URL=postgresql://user:password@localhost:5432/literature_analysis
-export GLM_API_KEY=7f4095b43cf54abe91cbbdba62c3587b.BR1Zz4sMNuclLhG3
+# 复制环境变量示例文件
+cp .env.example .env
 
-# 可选配置
-export REDIS_HOST=localhost
-export REDIS_PORT=6379
+# 编辑.env文件，填入必需的配置项
+# 必需配置：
+# DATABASE_URL - PostgreSQL数据库连接字符串
+# GLM_API_KEY - 智谱AI API密钥（从 https://open.bigmodel.cn 获取）
+
+# 可选配置：
+# REDIS_HOST, REDIS_PORT - Redis缓存配置
+# MAX_CONCURRENT - 最大并发数（默认5）
 ```
 
 ### 4. 初始化数据库
@@ -148,7 +152,51 @@ npm run serve
 ### 7. 访问应用
 
 - 前端界面: http://localhost:8080
-- 后端API: http://localhost:5000/api
+- 后端API: http://localhost:5001/api
+- 健康检查: http://localhost:5001/api/health
+
+---
+
+## 📡 API接口文档
+
+### 基础接口
+- `GET /api/health` - 健康检查
+- `GET /api/config` - 获取系统配置
+
+### 论文管理
+- `GET /api/papers` - 获取论文列表（支持搜索、过滤、分页）
+- `GET /api/papers/<id>` - 获取论文详情
+- `PUT /api/papers/<id>` - 更新论文信息
+- `DELETE /api/papers/<id>` - 删除论文
+- `POST /api/papers/batch-delete` - 批量删除论文
+
+### 文件上传
+- `POST /api/upload` - 上传PDF文件并自动解析入库
+
+### 分析功能
+- `POST /api/analyze` - 分析论文（支持摘要、要点、研究空白挖掘）
+- `POST /api/batch-analyze` - 批量分析论文
+- `POST /api/cluster` - 主题聚类分析
+
+### 代码生成
+- `POST /api/gaps/<id>/generate-code` - 为研究空白生成代码
+- `GET /api/code/<id>` - 获取生成的代码
+- `POST /api/code/<id>/modify` - AI辅助修改代码
+- `GET /api/code/<id>/versions` - 查看代码版本历史
+
+### 知识图谱
+- `GET /api/knowledge-graph` - 获取知识图谱数据
+- `POST /api/knowledge-graph/build` - 构建知识图谱
+- `POST /api/relations` - 手动添加论文关系
+
+### 统计查询
+- `GET /api/statistics` - 获取统计信息
+- `GET /api/gaps/priority` - 获取高优先级研究空白
+- `GET /api/gaps/<id>` - 获取研究空白详情
+
+### WebSocket
+- WebSocket连接用于实时进度更新
+- 事件类型：`progress` - 进度更新事件
 
 ---
 
@@ -343,6 +391,51 @@ MIT License
 
 ---
 
-**当前版本**: v4.1.0
-**最后更新**: 2026-01-01
-**状态**: ✅ 生产就绪
+## 🔧 版本更新日志
+
+### v4.1.3 (2026-01-15) - 紧急修复
+
+**🚨 关键修复**:
+- ✅ 修复ORM关系映射错误（ResearchGap-GeneratedCode外键冲突）
+- ✅ 明确指定foreign_keys参数解决循环引用
+- ✅ 创建数据库修复工具 `fix_database.py`
+
+**新增文档**:
+- `ORM_FIX.md` - ORM错误完整修复指南
+
+**重要**: 需要重新创建数据库才能生效！详见 `ORM_FIX.md`
+
+### v4.1.2 (2026-01-15)
+
+**紧急修复**:
+- ✅ 修复研究空白加载失败问题
+- ✅ API现在返回所有研究空白，而不仅仅是高优先级的
+- ✅ 添加数据库诊断工具 `check_gaps.py`
+- ✅ 改进空数据处理和错误提示
+
+**新增工具**:
+- `check_gaps.py` - 数据库检查和测试数据生成工具
+- `test_api.py` - API自动化测试脚本
+- `GAP_LOADING_FIX.md` - 研究空白问题修复指南
+
+### v4.1.1 (2026-01-15)
+
+**修复内容**:
+- ✅ 创建requirements.txt，完整列出所有Python依赖
+- ✅ 创建.env.example环境变量配置示例
+- ✅ 修复前后端API接口不匹配问题
+- ✅ 更新论文管理页面，适配数据库驱动架构
+- ✅ 更新分析页面，支持基于论文ID的分析
+- ✅ 添加主题聚类API接口
+- ✅ 修复WebSocket连接配置
+
+**改进**:
+- 前端完全迁移到数据库驱动架构
+- 所有API接口统一使用RESTful风格
+- 优化错误处理和用户提示
+
+---
+
+**当前版本**: v4.1.3
+**最后更新**: 2026-01-15
+**状态**: 🚨 需要重新创建数据库

@@ -6,7 +6,8 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
-from src.database import Base, Paper, Author, Keyword, Analysis, ResearchGap, GeneratedCode, Relation, Task
+from src.database import Base, Paper, Author, Keyword, Analysis, ResearchGap, GeneratedCode, Relation, Task, User
+from datetime import datetime
 import os
 
 
@@ -21,9 +22,13 @@ class DatabaseManager:
             db_url: 数据库URL，默认从环境变量读取
         """
         if db_url is None:
+            from src.config import settings
+            db_url = getattr(settings, 'database_url', None)
+
+        if db_url is None:
             db_url = os.getenv(
                 'DATABASE_URL',
-                'postgresql://user:password@localhost:5432/literature_analysis'
+                'postgresql://nuc:020509@localhost:5432/literature_analysis'
             )
 
         # 创建引擎
@@ -263,6 +268,22 @@ class DatabaseManager:
                 )
             ).order_by(ResearchGap.created_at.desc()).limit(limit).all()
 
+    def get_all_gaps(self, limit: int = 100, skip: int = 0, importance: str = None) -> List[ResearchGap]:
+        """获取所有研究空白，支持筛选"""
+        with self.get_session() as session:
+            query = session.query(ResearchGap)
+
+            # 可选筛选条件
+            if importance:
+                query = query.filter(ResearchGap.importance == importance)
+
+            return query.order_by(ResearchGap.created_at.desc()).offset(skip).limit(limit).all()
+
+    def get_research_gap(self, gap_id: int) -> Optional[ResearchGap]:
+        """获取研究空白详情"""
+        with self.get_session() as session:
+            return session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
+
     # ============================================================================
     # GeneratedCode CRUD操作
     # ============================================================================
@@ -473,6 +494,7 @@ class DatabaseManager:
                 'total_gaps': session.query(ResearchGap).count(),
                 'total_generated_code': session.query(GeneratedCode).count(),
                 'total_relations': session.query(Relation).count(),
+                'total_users': session.query(User).count(),
                 'completed_analyses': session.query(Analysis).filter(
                     Analysis.status == 'completed'
                 ).count(),
@@ -480,3 +502,105 @@ class DatabaseManager:
                     Task.status == 'pending'
                 ).count()
             }
+
+    # ============================================================================
+    # User CRUD操作
+    # ============================================================================
+
+    def create_user(self, user_data: Dict[str, Any]) -> User:
+        """创建用户"""
+        with self.get_session() as session:
+            # 检查用户名是否已存在
+            existing_username = session.query(User).filter(
+                User.username == user_data.get('username')
+            ).first()
+
+            if existing_username:
+                raise ValueError(f"用户名 '{user_data.get('username')}' 已被使用")
+
+            # 检查邮箱是否已存在
+            existing_email = session.query(User).filter(
+                User.email == user_data.get('email')
+            ).first()
+
+            if existing_email:
+                raise ValueError(f"邮箱 '{user_data.get('email')}' 已被注册")
+
+            # 创建用户
+            user = User(**user_data)
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+
+            # 在session关闭前，将对象转为dict再返回
+            # 使用expunge将对象从session中分离
+            session.expunge(user)
+
+            return user
+
+    def get_user(self, user_id: int) -> Optional[User]:
+        """获取用户详情"""
+        with self.get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if user:
+                session.expunge(user)
+            return user
+
+    def get_user_by_username(self, username: str) -> Optional[User]:
+        """通过用户名获取用户"""
+        with self.get_session() as session:
+            user = session.query(User).filter(User.username == username).first()
+            if user:
+                session.expunge(user)
+            return user
+
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        """通过邮箱获取用户"""
+        with self.get_session() as session:
+            user = session.query(User).filter(User.email == email).first()
+            if user:
+                session.expunge(user)
+            return user
+
+    def update_user(self, user_id: int, user_data: Dict[str, Any]) -> Optional[User]:
+        """更新用户信息"""
+        with self.get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return None
+
+            for key, value in user_data.items():
+                if hasattr(user, key) and key != 'id':  # 不允许修改ID
+                    setattr(user, key, value)
+
+            user.updated_at = datetime.utcnow()
+            session.commit()
+            session.refresh(user)
+            session.expunge(user)
+            return user
+
+    def update_user_login_info(self, user_id: int) -> Optional[User]:
+        """更新用户登录信息（登录次数和最后登录时间）"""
+        with self.get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return None
+
+            user.login_count = (user.login_count or 0) + 1
+            user.last_login_at = datetime.utcnow()
+            session.commit()
+            session.refresh(user)
+            session.expunge(user)
+            return user
+
+    def change_password(self, user_id: int, new_password_hash: str) -> bool:
+        """修改密码"""
+        with self.get_session() as session:
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                return False
+
+            user.password_hash = new_password_hash
+            user.updated_at = datetime.utcnow()
+            session.commit()
+            return True

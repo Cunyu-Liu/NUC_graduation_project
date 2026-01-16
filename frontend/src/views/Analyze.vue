@@ -2,15 +2,16 @@
   <div class="analyze">
     <h2>单篇论文分析</h2>
 
-    <el-card class="select-card" v-if="!currentFile">
+    <el-card class="select-card" v-if="!currentPaper">
       <h3>选择要分析的论文</h3>
       <el-table :data="files" style="width: 100%; margin-top: 20px">
-        <el-table-column prop="filename" label="文件名" />
-        <el-table-column prop="size" label="大小" :formatter="formatSize" />
-        <el-table-column label="操作" width="200">
+        <el-table-column prop="title" label="论文标题" min-width="300" />
+        <el-table-column prop="year" label="年份" width="100" />
+        <el-table-column prop="venue" label="期刊/会议" width="200" />
+        <el-table-column label="操作" width="150">
           <template #default="scope">
-            <el-button type="primary" size="small" @click="selectFile(scope.row)">
-              分析此文件
+            <el-button type="primary" size="small" @click="selectPaper(scope.row)">
+              分析此论文
             </el-button>
           </template>
         </el-table-column>
@@ -18,14 +19,14 @@
     </el-card>
 
     <div v-else>
-      <el-card class="file-card">
-        <div class="file-info">
-          <i class="el-icon-document file-icon"></i>
-          <div>
-            <h3>{{ currentFile.filename }}</h3>
-            <p>文件大小: {{ formatSize(null, null, currentFile.size) }}</p>
+      <el-card class="paper-card">
+        <div class="paper-info">
+          <i class="el-icon-document paper-icon"></i>
+          <div class="paper-details">
+            <h3>{{ currentPaper.title || '未命名论文' }}</h3>
+            <p>年份: {{ currentPaper.year || '未知' }} | 发表于: {{ currentPaper.venue || '未知' }}</p>
           </div>
-          <el-button @click="currentFile = null">选择其他文件</el-button>
+          <el-button @click="currentPaper = null">选择其他论文</el-button>
         </div>
       </el-card>
 
@@ -34,7 +35,7 @@
         <el-checkbox-group v-model="selectedTasks">
           <el-checkbox label="summary">生成摘要</el-checkbox>
           <el-checkbox label="keypoints">提取要点</el-checkbox>
-          <el-checkbox label="topic">主题分析</el-checkbox>
+          <el-checkbox label="gaps">研究空白挖掘</el-checkbox>
         </el-checkbox-group>
 
         <div style="margin-top: 20px">
@@ -55,7 +56,7 @@
           <el-tab-pane label="要点" name="keypoints" v-if="result.keypoints">
             <div class="keypoints-content">
               <div v-for="(items, category) in keypointsDisplay" :key="category" class="keypoint-category">
-                <h4>{{ categoryNames[category] }}</h4>
+                <h4>{{ categoryNames[category] || category }}</h4>
                 <ul>
                   <li v-for="(item, index) in items" :key="index">{{ item }}</li>
                 </ul>
@@ -63,8 +64,16 @@
             </div>
           </el-tab-pane>
 
-          <el-tab-pane label="主题分析" name="topic" v-if="result.topicAnalysis">
-            <div class="topic-content">{{ result.topicAnalysis.analysis }}</div>
+          <el-tab-pane label="研究空白" name="gaps" v-if="result.gaps && result.gaps.length > 0">
+            <div class="gaps-content">
+              <div v-for="(gap, index) in result.gaps" :key="index" class="gap-item">
+                <h4>研究空白 #{{ index + 1 }}</h4>
+                <p><strong>类型:</strong> {{ gap.gap_type }}</p>
+                <p><strong>描述:</strong> {{ gap.description }}</p>
+                <p><strong>重要性:</strong> {{ gap.importance }}/10</p>
+                <p v-if="gap.potential_approach"><strong>潜在方案:</strong> {{ gap.potential_approach }}</p>
+              </div>
+            </div>
           </el-tab-pane>
         </el-tabs>
 
@@ -90,8 +99,8 @@ export default {
     const store = useStore()
 
     const files = computed(() => store.state.files)
-    const currentFile = ref(null)
-    const selectedTasks = ref(['summary', 'keypoints', 'topic'])
+    const currentPaper = ref(null)
+    const selectedTasks = ref(['summary', 'keypoints', 'gaps'])
     const analyzing = ref(false)
     const result = ref(null)
     const activeTab = ref('summary')
@@ -102,7 +111,11 @@ export default {
       experiments: '实验设计',
       conclusions: '主要结论',
       contributions: '学术贡献',
-      limitations: '局限性'
+      limitations: '局限性',
+      background: '研究背景',
+      assumptions: '关键假设',
+      implications: '应用与影响',
+      future_work: '未来工作'
     }
 
     const keypointsDisplay = computed(() => {
@@ -116,12 +129,8 @@ export default {
       return filtered
     })
 
-    const formatSize = (row, column, size) => {
-      return (size / 1024 / 1024).toFixed(2) + ' MB'
-    }
-
-    const selectFile = (file) => {
-      currentFile.value = file
+    const selectPaper = (paper) => {
+      currentPaper.value = paper
       result.value = null
     }
 
@@ -139,9 +148,10 @@ export default {
       analyzing.value = true
 
       try {
-        const response = await api.analyzePaper(
-          `/uploads/${currentFile.value.filename}`,
-          selectedTasks.value
+        const response = await api.analyzePaperV4(
+          currentPaper.value.id,
+          selectedTasks.value,
+          true  // auto_generate_code
         )
 
         if (response.success) {
@@ -159,11 +169,26 @@ export default {
     }
 
     const downloadResult = () => {
-      const filename = currentFile.value.filename.replace('.pdf', '')
-      if (activeTab.value === 'summary') {
-        api.downloadResult('summary', `${filename}_summary.txt`)
-      } else if (activeTab.value === 'keypoints') {
-        api.downloadResult('keypoints', `${filename}_keypoints.txt`)
+      const filename = (currentPaper.value.title || 'paper').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')
+      if (activeTab.value === 'summary' && result.value?.summary) {
+        const blob = new Blob([result.value.summary], { type: 'text/plain;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${filename}_summary.txt`
+        a.click()
+        URL.revokeObjectURL(url)
+      } else if (activeTab.value === 'keypoints' && result.value?.keypoints) {
+        const content = Object.entries(result.value.keypoints)
+          .map(([key, items]) => `${categoryNames[key] || key}:\n${items.map(i => `  - ${i}`).join('\n')}`)
+          .join('\n\n')
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${filename}_keypoints.txt`
+        a.click()
+        URL.revokeObjectURL(url)
       }
     }
 
@@ -173,15 +198,14 @@ export default {
 
     return {
       files,
-      currentFile,
+      currentPaper,
       selectedTasks,
       analyzing,
       result,
       activeTab,
       categoryNames,
       keypointsDisplay,
-      formatSize,
-      selectFile,
+      selectPaper,
       startAnalysis,
       downloadResult
     }
@@ -201,30 +225,45 @@ h2 {
 }
 
 .select-card,
-.file-card,
+.paper-card,
 .options-card,
 .result-card {
   margin-bottom: 20px;
 }
 
-.file-info {
+.paper-info {
   display: flex;
   align-items: center;
   gap: 20px;
 }
 
-.file-icon {
+.paper-icon {
   font-size: 48px;
   color: #409eff;
 }
 
-.summary-content,
-.topic-content {
+.paper-details {
+  flex: 1;
+}
+
+.paper-details h3 {
+  margin: 0 0 8px 0;
+  color: #303133;
+}
+
+.paper-details p {
+  margin: 0;
+  color: #606266;
+  font-size: 14px;
+}
+
+.summary-content {
   line-height: 1.8;
   color: #303133;
   padding: 15px;
   background: #f5f7fa;
   border-radius: 4px;
+  white-space: pre-wrap;
 }
 
 .keypoints-content {
@@ -261,6 +300,29 @@ h2 {
   left: 0;
   color: #409eff;
   font-weight: bold;
+}
+
+.gaps-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.gap-item {
+  padding: 20px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  border-left: 4px solid #409eff;
+}
+
+.gap-item h4 {
+  color: #409eff;
+  margin-bottom: 12px;
+}
+
+.gap-item p {
+  margin: 8px 0;
+  line-height: 1.6;
 }
 
 .result-actions {

@@ -3,8 +3,14 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import fitz  # PyMuPDF
-import pdfplumber
 from dataclasses import dataclass
+
+# 尝试导入 pdfplumber
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
 
 
 @dataclass
@@ -84,22 +90,25 @@ class PDFParser:
         """
         text_parts = []
 
+        # 首先尝试使用 PyMuPDF
         try:
-            # 使用pdfplumber提取文本（保留格式更好）
-            with pdfplumber.open(pdf_path) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text_parts.append(page_text)
+            doc = fitz.open(pdf_path)
+            for page in doc:
+                text_parts.append(page.get_text())
+            doc.close()
         except Exception as e:
-            # 如果pdfplumber失败，使用PyMuPDF作为备选
-            try:
-                doc = fitz.open(pdf_path)
-                for page in doc:
-                    text_parts.append(page.get_text())
-                doc.close()
-            except Exception as e2:
-                raise Exception(f"PDF文本提取失败: {e}, 备选方案也失败: {e2}")
+            # 如果PyMuPDF失败，尝试pdfplumber（如果可用）
+            if PDFPLUMBER_AVAILABLE:
+                try:
+                    with pdfplumber.open(pdf_path) as pdf:
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text_parts.append(page_text)
+                except Exception as e2:
+                    raise Exception(f"PDF文本提取失败: {e}, pdfplumber备选方案也失败: {e2}")
+            else:
+                raise Exception(f"PDF文本提取失败: {e}")
 
         full_text = "\n\n".join(text_parts)
         return self._clean_text(full_text)

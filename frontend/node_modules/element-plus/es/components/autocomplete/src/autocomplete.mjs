@@ -1,4 +1,4 @@
-import { inputProps } from '../../input/src/input.mjs';
+import { inputProps } from '../../input/src/input2.mjs';
 import { useTooltipContentProps } from '../../tooltip/src/content.mjs';
 import { buildProps, definePropType } from '../../../utils/vue/props/runtime.mjs';
 import { NOOP, isString, isObject } from '@vue/shared';

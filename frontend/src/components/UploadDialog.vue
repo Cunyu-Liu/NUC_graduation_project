@@ -76,7 +76,14 @@ export default {
     }
 
     const handleError = (error) => {
-      ElMessage.error('上传失败: ' + error.message)
+      console.error('上传错误:', error)
+      if (error.message && error.message.includes('403')) {
+        ElMessage.error('上传失败：权限错误，请检查后端CORS配置')
+      } else if (error.message && error.message.includes('Network Error')) {
+        ElMessage.error('网络错误：请检查后端服务是否启动（端口5001）')
+      } else {
+        ElMessage.error('上传失败: ' + (error.message || '未知错误'))
+      }
     }
 
     return {

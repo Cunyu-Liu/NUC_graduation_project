@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { io } from 'socket.io-client'
+import router from '@/router'
 
 // 创建axios实例
 const api = axios.create({
@@ -7,9 +8,14 @@ const api = axios.create({
   timeout: 300000 // 5分钟超时
 })
 
-// 请求拦截器
+// 请求拦截器 - 自动添加token
 api.interceptors.request.use(
   config => {
+    // 从localStorage获取token
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   error => {
@@ -24,6 +30,19 @@ api.interceptors.response.use(
   },
   error => {
     console.error('API错误:', error)
+
+    // 处理401未授权错误
+    if (error.response && error.response.status === 401) {
+      // 清除认证信息
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+
+      // 如果不在登录页，跳转到登录页
+      if (router.currentRoute.value.path !== '/login') {
+        router.push('/login')
+      }
+    }
+
     return Promise.reject(error)
   }
 )
@@ -106,9 +125,9 @@ export default {
   analyzePaper: (filepath, tasks) =>
     api.post('/analyze', { filepath, tasks }),
 
-  // 主题聚类
-  clusterPapers: (filepaths, nClusters, method, language) =>
-    api.post('/cluster', { filepaths, nClusters, method, language }),
+  // 主题聚类（v4.0正确版本）
+  clusterPapers: (paperIds, nClusters = 5, method = 'kmeans', language = 'chinese') =>
+    api.post('/cluster', { paper_ids: paperIds, n_clusters: nClusters, method, language }),
 
   // 下载结果
   downloadResult: (type, filename) => {
@@ -139,8 +158,9 @@ export default {
   // v4.0 新增API - 分析和代码生成
   // ============================================================================
 
-  // 分析论文
-  analyzePaperV4: (paperId) => api.post(`/analyze/${paperId}`),
+  // 分析论文（v4.0正确版本）
+  analyzePaperV4: (paperId, tasks = ['summary', 'keypoints', 'gaps'], autoGenerateCode = true) =>
+    api.post('/analyze', { paper_id: paperId, tasks, auto_generate_code: autoGenerateCode }),
 
   // 获取研究空白列表
   getPriorityGaps: (limit = 50) => api.get('/gaps/priority', { params: { limit } }),
@@ -192,5 +212,24 @@ export default {
   // ============================================================================
 
   // 获取统计信息
-  getStatistics: () => api.get('/statistics')
+  getStatistics: () => api.get('/statistics'),
+
+  // ============================================================================
+  // 认证相关API
+  // ============================================================================
+
+  // 用户注册
+  register: (userData) => api.post('/auth/register', userData),
+
+  // 用户登录
+  login: (credentials) => api.post('/auth/login', credentials),
+
+  // 获取当前用户信息
+  getCurrentUser: () => api.get('/auth/user'),
+
+  // 更新用户信息
+  updateUser: (userData) => api.put('/auth/user', userData),
+
+  // 修改密码
+  changePassword: (passwords) => api.post('/auth/change-password', passwords)
 }

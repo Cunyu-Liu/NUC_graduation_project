@@ -303,8 +303,17 @@ const loadGaps = async () => {
   loading.value = true
   try {
     const response = await api.getPriorityGaps(1000)
+
     if (response.success) {
-      const allGaps = response.data
+      const allGaps = response.data || []
+
+      if (allGaps.length === 0) {
+        ElMessage.info('暂无研究空白数据，请先分析论文')
+        gaps.value = []
+        pagination.value.total = 0
+        updateStats()
+        return
+      }
 
       // 添加评分字段
       gaps.value = allGaps.map(gap => ({
@@ -315,10 +324,19 @@ const loadGaps = async () => {
 
       pagination.value.total = allGaps.length
       updateStats()
+      ElMessage.success(`成功加载 ${allGaps.length} 个研究空白`)
+    } else {
+      ElMessage.error(response.error || '加载研究空白失败')
     }
   } catch (error) {
-    ElMessage.error('加载研究空白失败')
-    console.error(error)
+    console.error('加载研究空白失败:', error)
+    if (error.response) {
+      ElMessage.error(`服务器错误: ${error.response.status}`)
+    } else if (error.request) {
+      ElMessage.error('网络错误，请检查后端服务是否启动')
+    } else {
+      ElMessage.error('加载研究空白失败: ' + error.message)
+    }
   } finally {
     loading.value = false
   }
@@ -467,7 +485,73 @@ ${gap.expected_impact}
 }
 
 const exportGaps = () => {
-  ElMessage.info('批量导出功能开发中')
+  try {
+    if (filteredGaps.value.length === 0) {
+      ElMessage.warning('没有可导出的研究空白')
+      return
+    }
+
+    // 创建导出内容
+    let content = '研究空白汇总报告\n'
+    content += '=' .repeat(80) + '\n\n'
+    content += `导出时间: ${new Date().toLocaleString('zh-CN')}\n`
+    content += `总计: ${filteredGaps.value.length} 个研究空白\n\n`
+
+    // 统计信息
+    content += '统计信息\n'
+    content += '-' .repeat(40) + '\n'
+    content += `高优先级: ${filteredGaps.value.filter(g => g.importance === 'high').length}\n`
+    content += `已生成代码: ${filteredGaps.value.filter(g => g.generated_code_id).length}\n`
+    content += `已实现: ${filteredGaps.value.filter(g => g.status === 'implemented').length}\n\n`
+
+    // 按类型分组
+    const gapsByType = {}
+    filteredGaps.value.forEach(gap => {
+      const type = getGapTypeLabel(gap.gap_type)
+      if (!gapsByType[type]) gapsByType[type] = []
+      gapsByType[type].push(gap)
+    })
+
+    // 详细列表
+    content += '详细列表\n'
+    content += '=' .repeat(80) + '\n\n'
+
+    Object.keys(gapsByType).forEach((type, typeIndex) => {
+      content += `\n${typeIndex + 1}. ${type}类空白 (${gapsByType[type].length}个)\n`
+      content += '-' .repeat(80) + '\n'
+
+      gapsByType[type].forEach((gap, index) => {
+        content += `\n[${index + 1}] 空白ID: ${gap.id}\n`
+        content += `     类型: ${getGapTypeLabel(gap.gap_type)}\n`
+        content += `     重要性: ${gap.importance} | 难度: ${gap.difficulty}\n`
+        content += `     描述: ${gap.description}\n`
+        if (gap.potential_approach) {
+          content += `     潜在方法: ${gap.potential_approach}\n`
+        }
+        if (gap.expected_impact) {
+          content += `     预期影响: ${gap.expected_impact}\n`
+        }
+        content += `     状态: ${getStatusLabel(gap.status)}\n`
+      })
+    })
+
+    content += '\n' + '=' .repeat(80) + '\n'
+    content += '报告结束\n'
+
+    // 下载文件
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `research_gaps_export_${new Date().getTime()}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+
+    ElMessage.success(`成功导出 ${filteredGaps.value.length} 个研究空白`)
+  } catch (error) {
+    ElMessage.error('导出失败: ' + error.message)
+    console.error('Export error:', error)
+  }
 }
 
 const refreshGaps = () => {

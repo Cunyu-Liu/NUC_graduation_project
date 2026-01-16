@@ -238,15 +238,17 @@ class ResearchGap(Base):
     potential_approach = Column(Text)
     expected_impact = Column(Text)
 
-    # 代码生成关联
-    generated_code_id = Column(Integer, ForeignKey('generated_code.id'))
+    # 代码生成关联 - 移除generated_code_id避免循环引用
     status = Column(String(50), default='identified')  # identified, code_generating, implemented, verified
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # 关系
+    # 关系 - 明确指定foreign_keys以避免歧义
     analysis = relationship("Analysis", back_populates="research_gaps")
-    generated_code = relationship("GeneratedCode", back_populates="research_gaps")
+    generated_code = relationship("GeneratedCode",
+                                 uselist=False,
+                                 foreign_keys="GeneratedCode.gap_id",
+                                 back_populates="research_gap")
 
     def __repr__(self):
         return f"<ResearchGap(id={self.id}, type='{self.gap_type}', status='{self.status}')>"
@@ -299,8 +301,8 @@ class GeneratedCode(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    # 关系
-    research_gaps = relationship("ResearchGap", back_populates="generated_code")
+    # 关系 - 明确指定foreign_keys以避免歧义
+    research_gap = relationship("ResearchGap", back_populates="generated_code")
     versions = relationship("CodeVersion", back_populates="parent_code", cascade="all, delete-orphan")
     experiments = relationship("Experiment", back_populates="code", cascade="all, delete-orphan")
 
@@ -397,7 +399,7 @@ class Relation(Base):
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # 关系
+    # 关系 - 明确指定外键
     source = relationship("Paper", foreign_keys=[source_id], back_populates="outgoing_relations")
     target = relationship("Paper", foreign_keys=[target_id], back_populates="incoming_relations")
 
@@ -418,6 +420,60 @@ class Relation(Base):
             'strength': self.strength,
             'evidence': self.evidence,
             'metadata': self.meta_data,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+# ============================================================================
+# 用户相关模型
+# ============================================================================
+
+class User(Base):
+    """用户表"""
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(100), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    full_name = Column(String(100))
+
+    # 用户信息
+    avatar = Column(String(500))  # 头像URL
+    bio = Column(Text)  # 个人简介
+    institution = Column(String(200))  # 所属机构
+    research_interests = Column(ARRAY(String), default=[])  # 研究兴趣
+
+    # 状态
+    is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)  # 邮箱验证状态
+
+    # 统计信息
+    login_count = Column(Integer, default=0)
+    last_login_at = Column(DateTime)
+
+    # 时间戳
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    def __repr__(self):
+        return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典（不包含密码）"""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'full_name': self.full_name,
+            'avatar': self.avatar,
+            'bio': self.bio,
+            'institution': self.institution,
+            'research_interests': self.research_interests,
+            'is_active': self.is_active,
+            'is_verified': self.is_verified,
+            'login_count': self.login_count,
+            'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 

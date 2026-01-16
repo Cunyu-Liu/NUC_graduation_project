@@ -6,6 +6,7 @@ import sys
 import json
 import asyncio
 import hashlib
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any
@@ -14,6 +15,11 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+
+# 加载环境变量（必须在导入其他模块前）
+env_path = Path(__file__).parent / '.env'
+load_dotenv(env_path)
 
 # 添加src到路径
 sys.path.append(str(Path(__file__).parent))
@@ -22,6 +28,7 @@ from src.config import settings
 from src.db_manager import DatabaseManager
 from src.async_workflow import AsyncWorkflowEngine
 from src.code_generator import CodeGenerator
+from src.auth import hash_password, verify_password, generate_token, decode_token, auth_required
 
 # v4.1 性能优化模块
 try:
@@ -43,11 +50,25 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 app.config['UPLOAD_FOLDER'] = str(settings.upload_dir)
 app.config['JSON_AS_ASCII'] = False
 
-# CORS配置
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# CORS配置 - 支持文件上传和所有HTTP方法
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "expose_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
 
-# SocketIO配置
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# SocketIO配置（使用eventlet模式以避免WSGI错误）
+try:
+    import eventlet
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=False)
+    SOCKETIO_MODE = 'eventlet'
+except ImportError:
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=False, engineio_logger=False)
+    SOCKETIO_MODE = 'threading'
 
 # 初始化数据库
 db = DatabaseManager()
@@ -58,10 +79,14 @@ except Exception as e:
     print(f"⚠ 数据库初始化警告: {e}")
 
 # 初始化工作流引擎
+# 设置OpenAI API密钥环境变量（ChatOpenAI需要）
+if not os.getenv('OPENAI_API_KEY'):
+    os.environ['OPENAI_API_KEY'] = os.getenv('GLM_API_KEY', '')
+
 workflow = AsyncWorkflowEngine(
     db_manager=db,
     llm_config={
-        'model': os.getenv('LLM_MODEL', 'glm-4-plus'),
+        'model': os.getenv('LLM_MODEL', 'glm-4-flash'),
         'api_key': os.getenv('GLM_API_KEY'),
         'base_url': os.getenv('GLM_BASE_URL'),
         'max_concurrent': int(os.getenv('MAX_CONCURRENT', 5))
@@ -160,6 +185,348 @@ def get_config():
         "maxConcurrent": int(os.getenv('MAX_CONCURRENT', 5))
     }
     return jsonify(create_response(success=True, data=config_data))
+
+
+# ============================================================================
+# 用户认证相关API
+# ============================================================================
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """用户注册"""
+    try:
+        # 打印请求信息用于调试
+        print(f"\n[DEBUG] ========== 注册请求调试信息 ==========")
+        print(f"[DEBUG] Content-Type: {request.content_type}")
+        print(f"[DEBUG] 原始数据: {request.data[:500]}")  # 打印前500字节
+        print(f"[DEBUG] 数据长度: {len(request.data)}")
+
+        # 获取请求数据
+        data = request.get_json(force=True, silent=True)
+
+        print(f"[DEBUG] 解析后的数据: {data}")
+
+        # 如果JSON解析失败
+        if data is None:
+            print(f"[DEBUG] ❌ JSON解析失败 - data is None")
+            print(f"[DEBUG] 尝试不使用silent参数重新解析...")
+            try:
+                data = request.get_json(force=True)
+                print(f"[DEBUG] 强制解析成功: {data}")
+            except Exception as e:
+                print(f"[DEBUG] ❌ 强制解析也失败: {e}")
+                import traceback
+                traceback.print_exc()
+
+            return jsonify(create_response(
+                success=False,
+                error="无效的JSON数据"
+            )), 400
+
+        # 验证必填字段
+        username = data.get('username', '')
+        email = data.get('email', '')
+        password = data.get('password', '')
+
+        print(f"[DEBUG] 提取的字段 - username: {username}, email: {email}, password: {'*' * len(password) if password else 'None'}")
+
+        if not username or not email or not password:
+            print(f"[DEBUG] 必填字段缺失")
+            return jsonify(create_response(
+                success=False,
+                error="用户名、邮箱和密码不能为空"
+            )), 400
+
+        # 验证用户名格式（3-20个字符，只能包含字母、数字、下划线）
+        username = data.get('username', '').strip()
+        if not username:
+            return jsonify(create_response(
+                success=False,
+                error="用户名不能为空"
+            )), 400
+
+        if len(username) < 3 or len(username) > 20:
+            return jsonify(create_response(
+                success=False,
+                error="用户名长度必须在3-20个字符之间"
+            )), 400
+
+        # 验证邮箱格式
+        email = data.get('email', '').strip().lower()
+        if not email:
+            return jsonify(create_response(
+                success=False,
+                error="邮箱不能为空"
+            )), 400
+
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            return jsonify(create_response(
+                success=False,
+                error="邮箱格式不正确"
+            )), 400
+
+        # 验证密码长度（至少6个字符）
+        password = data.get('password', '')
+        if not password:
+            return jsonify(create_response(
+                success=False,
+                error="密码不能为空"
+            )), 400
+
+        if len(password) < 6:
+            return jsonify(create_response(
+                success=False,
+                error="密码长度至少为6个字符"
+            )), 400
+
+        # 加密密码
+        password_hash = hash_password(password)
+
+        # 准备用户数据
+        user_data = {
+            'username': username,
+            'email': email,
+            'password_hash': password_hash,
+            'full_name': data.get('full_name', '').strip(),
+            'bio': data.get('bio', '').strip(),
+            'institution': data.get('institution', '').strip(),
+            'research_interests': data.get('research_interests', []),
+            'is_active': True,
+            'is_verified': False
+        }
+
+        # 创建用户
+        try:
+            print(f"[DEBUG] 准备创建用户: {username}")
+            user = db.create_user(user_data)
+            print(f"[DEBUG] 用户创建成功: {user.id if user else 'None'}")
+        except ValueError as e:
+            print(f"[DEBUG] ValueError: {str(e)}")
+            return jsonify(create_response(
+                success=False,
+                error=str(e)
+            )), 400
+        except Exception as e:
+            print(f"[DEBUG] Exception: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify(create_response(
+                success=False,
+                error=f"创建用户失败: {str(e)}"
+            )), 500
+
+        # 生成token
+        token = generate_token(user.id, user.username, user.email)
+
+        # 转换用户数据为字典
+        user_dict = user.to_dict() if user else None
+
+        return jsonify(create_response(
+            success=True,
+            data={
+                'token': token,
+                'user': user_dict
+            },
+            message="注册成功"
+        )), 201
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(
+            success=False,
+            error=f"服务器错误: {str(e)}"
+        )), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """用户登录"""
+    try:
+        data = request.get_json()
+
+        # 验证必填字段
+        if not data.get('login_identifier') or not data.get('password'):
+            return jsonify(create_response(
+                success=False,
+                error="用户名/邮箱和密码不能为空"
+            )), 400
+
+        login_identifier = data.get('login_identifier').strip()
+        password = data.get('password')
+
+        # 查找用户（通过用户名或邮箱）
+        user = db.get_user_by_username(login_identifier)
+        if not user:
+            user = db.get_user_by_email(login_identifier)
+
+        if not user:
+            return jsonify(create_response(
+                success=False,
+                error="用户名或密码错误"
+            )), 401
+
+        # 验证密码
+        if not verify_password(password, user.password_hash):
+            return jsonify(create_response(
+                success=False,
+                error="用户名或密码错误"
+            )), 401
+
+        # 检查用户状态
+        if not user.is_active:
+            return jsonify(create_response(
+                success=False,
+                error="账号已被禁用"
+            )), 403
+
+        # 更新登录信息
+        db.update_user_login_info(user.id)
+
+        # 生成token
+        token = generate_token(user.id, user.username, user.email)
+
+        return jsonify(create_response(
+            success=True,
+            data={
+                'token': token,
+                'user': user.to_dict()
+            },
+            message="登录成功"
+        ))
+
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/auth/user', methods=['GET'])
+@auth_required
+def get_current_user():
+    """获取当前登录用户信息"""
+    try:
+        user_id = getattr(request, 'current_user_id', None)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="未登录"
+            )), 401
+
+        user = db.get_user(user_id)
+        if not user:
+            return jsonify(create_response(
+                success=False,
+                error="用户不存在"
+            )), 404
+
+        return jsonify(create_response(
+            success=True,
+            data=user.to_dict()
+        ))
+
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/auth/user', methods=['PUT'])
+@auth_required
+def update_current_user():
+    """更新当前用户信息"""
+    try:
+        user_id = getattr(request, 'current_user_id', None)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="未登录"
+            )), 401
+
+        data = request.get_json()
+
+        # 不允许直接修改的字段
+        protected_fields = ['id', 'username', 'email', 'password_hash',
+                          'login_count', 'last_login_at', 'created_at', 'is_verified']
+        for field in protected_fields:
+            if field in data:
+                del data[field]
+
+        # 更新用户信息
+        user = db.update_user(user_id, data)
+        if not user:
+            return jsonify(create_response(
+                success=False,
+                error="用户不存在"
+            )), 404
+
+        return jsonify(create_response(
+            success=True,
+            data=user.to_dict(),
+            message="用户信息更新成功"
+        ))
+
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@auth_required
+def change_password():
+    """修改密码"""
+    try:
+        user_id = getattr(request, 'current_user_id', None)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="未登录"
+            )), 401
+
+        data = request.get_json()
+
+        # 验证必填字段
+        if not data.get('old_password') or not data.get('new_password'):
+            return jsonify(create_response(
+                success=False,
+                error="旧密码和新密码不能为空"
+            )), 400
+
+        # 获取用户
+        user = db.get_user(user_id)
+        if not user:
+            return jsonify(create_response(
+                success=False,
+                error="用户不存在"
+            )), 404
+
+        # 验证旧密码
+        if not verify_password(data.get('old_password'), user.password_hash):
+            return jsonify(create_response(
+                success=False,
+                error="旧密码错误"
+            )), 400
+
+        # 验证新密码长度
+        if len(data.get('new_password')) < 6:
+            return jsonify(create_response(
+                success=False,
+                error="新密码长度至少为6个字符"
+            )), 400
+
+        # 更新密码
+        new_password_hash = hash_password(data.get('new_password'))
+        success = db.change_password(user_id, new_password_hash)
+
+        if not success:
+            return jsonify(create_response(
+                success=False,
+                error="密码修改失败"
+            )), 500
+
+        return jsonify(create_response(
+            success=True,
+            message="密码修改成功"
+        ))
+
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
 
 
 # ============================================================================
@@ -433,6 +800,84 @@ async def batch_analyze_papers():
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
+@app.route('/api/cluster', methods=['POST'])
+def cluster_papers():
+    """主题聚类分析"""
+    try:
+        from src.topic_clustering import TopicClustering
+        from src.pdf_parser_enhanced import EnhancedPDFParser
+
+        data = request.get_json()
+        paper_ids = data.get('paper_ids', [])
+        n_clusters = data.get('n_clusters', 5)
+        method = data.get('method', 'kmeans')
+        language = data.get('language', 'chinese')
+
+        if not paper_ids:
+            return jsonify(create_response(success=False, error="缺少paper_ids")), 400
+
+        # 获取论文PDF路径
+        pdf_paths = []
+        paper_titles = []
+        for paper_id in paper_ids:
+            paper = db.get_paper(paper_id)
+            if paper:
+                pdf_path = Path(settings.upload_dir) / paper.pdf_path
+                if pdf_path.exists():
+                    pdf_paths.append(str(pdf_path))
+                    paper_titles.append(paper.title or paper.pdf_path)
+
+        if len(pdf_paths) < 2:
+            return jsonify(create_response(success=False, error="至少需要2篇论文才能进行聚类")), 400
+
+        # 解析PDF
+        parser = EnhancedPDFParser()
+        papers = []
+        for pdf_path in pdf_paths:
+            try:
+                paper = parser.parse_pdf(pdf_path)
+                papers.append(paper)
+            except Exception as e:
+                print(f"解析PDF失败 {pdf_path}: {e}")
+
+        if len(papers) < 2:
+            return jsonify(create_response(success=False, error="成功解析的论文数量不足")), 400
+
+        # 执行聚类
+        emit_progress(20, f"开始聚类分析 {len(papers)} 篇论文", "聚类中")
+
+        clustering = TopicClustering(
+            n_clusters=n_clusters,
+            clustering_method=method,
+            language=language
+        )
+
+        result = clustering.cluster_papers(
+            papers=papers,
+            save_visualization=False,
+            save_report=False
+        )
+
+        emit_progress(100, "聚类分析完成", "完成")
+
+        # 格式化返回数据
+        formatted_result = {
+            'n_clusters': result['unique_clusters'],
+            'cluster_analysis': result['cluster_analysis'],
+            'papers': paper_titles,
+            'labels': result['labels'].tolist()
+        }
+
+        return jsonify(create_response(
+            success=True,
+            data=formatted_result,
+            message=f"聚类完成，共发现 {result['unique_clusters']} 个主题类别"
+        ))
+
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
 # ============================================================================
 # 代码生成
 # ============================================================================
@@ -569,16 +1014,18 @@ def get_statistics():
 
 @app.route('/api/gaps/priority', methods=['GET'])
 def get_priority_gaps():
-    """获取高优先级研究空白"""
+    """获取高优先级研究空白（改为返回所有研究空白）"""
     try:
-        limit = int(request.args.get('limit', 20))
+        limit = int(request.args.get('limit', 100))
+        importance = request.args.get('importance', None)  # 可选筛选
 
-        gaps = db.get_priority_gaps(limit=limit)
+        # 使用新的get_all_gaps方法获取所有研究空白
+        gaps = db.get_all_gaps(limit=limit, skip=0, importance=importance)
 
         return jsonify(create_response(
             success=True,
             data=[gap.to_dict() for gap in gaps],
-            message=f"获取到 {len(gaps)} 个高优先级研究空白"
+            message=f"获取到 {len(gaps)} 个研究空白"
         ))
     except Exception as e:
         return jsonify(create_response(success=False, error=str(e))), 500
@@ -588,14 +1035,16 @@ def get_priority_gaps():
 def get_gap_detail(gap_id: int):
     """获取研究空白详情"""
     try:
-        gap = db.get_research_gap(gap_id)
-        if not gap:
-            return jsonify(create_response(success=False, error="研究空白不存在")), 404
+        from src.database import ResearchGap
+        with db.get_session() as session:
+            gap = session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
+            if not gap:
+                return jsonify(create_response(success=False, error="研究空白不存在")), 404
 
-        return jsonify(create_response(
-            success=True,
-            data=gap.to_dict()
-        ))
+            return jsonify(create_response(
+                success=True,
+                data=gap.to_dict()
+            ))
     except Exception as e:
         return jsonify(create_response(success=False, error=str(e))), 500
 
@@ -679,4 +1128,4 @@ if __name__ == '__main__':
     print(f"✓ WebSocket: 启用")
     print("="*80 + "\n")
 
-    socketio.run(app, debug=True, port=5001, host='0.0.0.0')
+    socketio.run(app, debug=True, port=5001, host='0.0.0.0', allow_unsafe_werkzeug=True)

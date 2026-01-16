@@ -4,8 +4,17 @@
 import asyncio
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+
+# 尝试导入 langchain，如果没有安装则使用占位符
+try:
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import HumanMessage, SystemMessage
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    ChatOpenAI = None
+    HumanMessage = None
+    SystemMessage = None
 
 from src.db_manager import DatabaseManager
 from src.database import ResearchGap, GeneratedCode
@@ -69,11 +78,17 @@ class CodeGenerator:
             llm: LLM实例
             db_manager: 数据库管理器
         """
-        self.llm = llm or ChatOpenAI(
-            model='glm-4-air',
-            temperature=0.2,  # 代码生成需要较低温度
-            max_tokens=16000
-        )
+        if llm:
+            self.llm = llm
+        elif LANGCHAIN_AVAILABLE and ChatOpenAI:
+            self.llm = ChatOpenAI(
+                model='glm-4-air',
+                temperature=0.2,  # 代码生成需要较低温度
+                max_tokens=16000
+            )
+        else:
+            self.llm = None
+
         self.db = db_manager or DatabaseManager()
 
         # 代码生成模板
@@ -120,6 +135,9 @@ class CodeGenerator:
         Returns:
             Dict: 生成的代码数据
         """
+        if not self.llm or not LANGCHAIN_AVAILABLE:
+            raise ValueError("LLM功能未启用，无法生成代码")
+
         # 构建提示词
         prompt = self._build_code_generation_prompt(
             research_gap, strategy, language, framework, user_prompt
@@ -482,6 +500,9 @@ class CodeGenerator:
 
 请输出修改后的完整代码：
 """
+
+        if not self.llm or not LANGCHAIN_AVAILABLE:
+            raise ValueError("LLM功能未启用，无法修改代码")
 
         # 调用LLM修改代码
         loop = asyncio.get_event_loop()
