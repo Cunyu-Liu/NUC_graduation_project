@@ -555,7 +555,7 @@ def get_papers():
 
         return jsonify(create_response(
             success=True,
-            data=[paper.to_dict() for paper in papers],
+            data=papers,
             message=f"获取到 {len(papers)} 篇论文"
         ))
     except Exception as e:
@@ -579,9 +579,9 @@ def get_paper_detail(paper_id: int):
         return jsonify(create_response(
             success=True,
             data={
-                'paper': paper.to_dict(),
-                'analyses': [a.to_dict() for a in analyses],
-                'relations': [r.to_dict() for r in relations]
+                'paper': paper,
+                'analyses': analyses,
+                'relations': relations
             }
         ))
     except Exception as e:
@@ -600,7 +600,7 @@ def update_paper(paper_id: int):
 
         return jsonify(create_response(
             success=True,
-            data=paper.to_dict(),
+            data=paper,
             message="论文更新成功"
         ))
     except Exception as e:
@@ -700,7 +700,7 @@ def upload_file():
 
         return jsonify(create_response(
             success=True,
-            data=paper_record.to_dict(),
+            data=paper_record,
             message="文件上传并解析成功"
         ))
 
@@ -917,7 +917,7 @@ async def generate_gap_code(gap_id: int):
 
         return jsonify(create_response(
             success=True,
-            data=code_record.to_dict(),
+            data=code_record,
             message="代码生成成功"
         ))
 
@@ -935,7 +935,7 @@ def get_code(code_id: int):
 
         return jsonify(create_response(
             success=True,
-            data=code.to_dict()
+            data=code
         ))
     except Exception as e:
         return jsonify(create_response(success=False, error=str(e))), 500
@@ -965,7 +965,7 @@ async def modify_code(code_id: int):
 
         return jsonify(create_response(
             success=True,
-            data=updated_code.to_dict(),
+            data=updated_code,
             message="代码修改成功"
         ))
 
@@ -1024,7 +1024,7 @@ def get_priority_gaps():
 
         return jsonify(create_response(
             success=True,
-            data=[gap.to_dict() for gap in gaps],
+            data=gaps,
             message=f"获取到 {len(gaps)} 个研究空白"
         ))
     except Exception as e:
@@ -1035,16 +1035,14 @@ def get_priority_gaps():
 def get_gap_detail(gap_id: int):
     """获取研究空白详情"""
     try:
-        from src.database import ResearchGap
-        with db.get_session() as session:
-            gap = session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
-            if not gap:
-                return jsonify(create_response(success=False, error="研究空白不存在")), 404
+        gap = db.get_research_gap(gap_id)
+        if not gap:
+            return jsonify(create_response(success=False, error="研究空白不存在")), 404
 
-            return jsonify(create_response(
-                success=True,
-                data=gap.to_dict()
-            ))
+        return jsonify(create_response(
+            success=True,
+            data=gap
+        ))
     except Exception as e:
         return jsonify(create_response(success=False, error=str(e))), 500
 
@@ -1053,12 +1051,15 @@ def get_gap_detail(gap_id: int):
 def get_code_versions(code_id: int):
     """获取代码版本历史"""
     try:
-        versions = db.get_code_versions(code_id)
+        code = db.get_code(code_id)
+        if not code:
+            return jsonify(create_response(success=False, error="代码不存在")), 404
 
+        # 简单返回当前代码信息，版本历史功能待实现
         return jsonify(create_response(
             success=True,
-            data=[v.to_dict() for v in versions],
-            message=f"获取到 {len(versions)} 个版本"
+            data=[code],
+            message=f"获取到代码信息"
         ))
     except Exception as e:
         return jsonify(create_response(success=False, error=str(e))), 500
@@ -1106,7 +1107,7 @@ def add_relation():
 
         return jsonify(create_response(
             success=True,
-            data=relation.to_dict(),
+            data=relation,
             message="关系添加成功"
         ))
     except Exception as e:

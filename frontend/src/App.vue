@@ -6,7 +6,7 @@
         <div class="header-content">
           <h1 class="title">
             <i class="el-icon-document"></i>
-            科研文献摘要提取系统
+            科研文献智能分析系统
           </h1>
           <div class="header-right">
             <el-badge :value="uploadedCount" class="item">
@@ -45,10 +45,54 @@
         </div>
       </el-header>
 
-      <!-- 主内容区 -->
-      <el-main class="main">
-        <router-view />
-      </el-main>
+      <el-container>
+        <!-- 侧边栏菜单 -->
+        <el-aside width="200px" class="aside">
+          <el-menu
+            :default-active="currentRoute"
+            router
+            class="menu"
+            background-color="#304156"
+            text-color="#bfcbd9"
+            active-text-color="#409eff"
+          >
+            <el-menu-item index="/home">
+              <i class="el-icon-house"></i>
+              <span>首页</span>
+            </el-menu-item>
+
+            <el-menu-item index="/analyze">
+              <i class="el-icon-document"></i>
+              <span>单篇分析</span>
+            </el-menu-item>
+
+            <el-menu-item index="/cluster">
+              <i class="el-icon-data-analysis"></i>
+              <span>聚类分析</span>
+            </el-menu-item>
+
+            <el-menu-item index="/files">
+              <i class="el-icon-folder"></i>
+              <span>文件管理</span>
+            </el-menu-item>
+
+            <el-menu-item index="/gaps">
+              <i class="el-icon-search"></i>
+              <span>研究空白</span>
+            </el-menu-item>
+
+            <el-menu-item index="/knowledge-graph">
+              <i class="el-icon-share"></i>
+              <span>知识图谱</span>
+            </el-menu-item>
+          </el-menu>
+        </el-aside>
+
+        <!-- 主内容区 -->
+        <el-main class="main">
+          <router-view />
+        </el-main>
+      </el-container>
     </el-container>
 
     <!-- 未登录时只显示路由内容 -->
@@ -65,7 +109,7 @@
 <script>
 import { computed } from 'vue'
 import { useStore } from 'vuex'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import UploadDialog from '@/components/UploadDialog.vue'
 import ProgressDialog from '@/components/ProgressDialog.vue'
@@ -79,10 +123,12 @@ export default {
   setup() {
     const store = useStore()
     const router = useRouter()
+    const route = useRoute()
 
     const isAuthenticated = computed(() => store.getters.isAuthenticated)
     const currentUser = computed(() => store.getters.currentUser)
     const uploadedCount = computed(() => store.state.files.length)
+    const currentRoute = computed(() => route.path)
 
     // 用户头像（默认使用首字母）
     const userAvatar = computed(() => currentUser.value?.avatar || '')
@@ -133,6 +179,7 @@ export default {
       isAuthenticated,
       currentUser,
       uploadedCount,
+      currentRoute,
       userAvatar,
       userInitial,
       showUploadDialog,
@@ -167,6 +214,7 @@ export default {
   color: white;
   padding: 0 !important;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  height: 60px !important;
 }
 
 .header-content {
@@ -187,6 +235,25 @@ export default {
 
 .title i {
   margin-right: 10px;
+}
+
+.aside {
+  background-color: #304156;
+  overflow-x: hidden;
+}
+
+.menu {
+  border: none;
+  height: 100%;
+}
+
+.menu .el-menu-item {
+  min-height: 50px;
+  line-height: 50px;
+}
+
+.menu .el-menu-item i {
+  margin-right: 8px;
 }
 
 .main {

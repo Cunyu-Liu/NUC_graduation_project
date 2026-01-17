@@ -75,7 +75,7 @@ class DatabaseManager:
     # Paper CRUD操作
     # ============================================================================
 
-    def create_paper(self, paper_data: Dict[str, Any]) -> Paper:
+    def create_paper(self, paper_data: Dict[str, Any]) -> Dict[str, Any]:
         """创建论文记录"""
         with self.get_session() as session:
             # 检查是否已存在（通过pdf_hash）
@@ -85,7 +85,7 @@ class DatabaseManager:
 
             if existing:
                 print(f"  论文已存在: {existing.title}")
-                return existing
+                return existing.to_dict()
 
             # 创建论文
             paper = Paper(**paper_data)
@@ -105,12 +105,13 @@ class DatabaseManager:
             session.commit()
             session.refresh(paper)
             print(f"  ✓ 创建论文: {paper.title[:60]}")
-            return paper
+            return paper.to_dict()
 
-    def get_paper(self, paper_id: int) -> Optional[Paper]:
+    def get_paper(self, paper_id: int) -> Optional[Dict[str, Any]]:
         """获取论文详情"""
         with self.get_session() as session:
-            return session.query(Paper).filter(Paper.id == paper_id).first()
+            paper = session.query(Paper).filter(Paper.id == paper_id).first()
+            return paper.to_dict() if paper else None
 
     def get_papers(
         self,
@@ -120,7 +121,7 @@ class DatabaseManager:
         year_from: int = None,
         year_to: int = None,
         venue: str = None
-    ) -> List[Paper]:
+    ) -> List[Dict[str, Any]]:
         """获取论文列表（支持搜索和过滤）"""
         with self.get_session() as session:
             query = session.query(Paper)
@@ -148,9 +149,10 @@ class DatabaseManager:
             query = query.order_by(Paper.created_at.desc())
             query = query.offset(skip).limit(limit)
 
-            return query.all()
+            papers = query.all()
+            return [paper.to_dict() for paper in papers]
 
-    def update_paper(self, paper_id: int, paper_data: Dict[str, Any]) -> Optional[Paper]:
+    def update_paper(self, paper_id: int, paper_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """更新论文信息"""
         with self.get_session() as session:
             paper = session.query(Paper).filter(Paper.id == paper_id).first()
@@ -164,7 +166,7 @@ class DatabaseManager:
             paper.updated_at = datetime.utcnow()
             session.commit()
             session.refresh(paper)
-            return paper
+            return paper.to_dict()
 
     def delete_paper(self, paper_id: int) -> bool:
         """删除论文（级联删除相关数据）"""
@@ -190,28 +192,30 @@ class DatabaseManager:
     # Analysis CRUD操作
     # ============================================================================
 
-    def create_analysis(self, analysis_data: Dict[str, Any]) -> Analysis:
+    def create_analysis(self, analysis_data: Dict[str, Any]) -> Dict[str, Any]:
         """创建分析记录"""
         with self.get_session() as session:
             analysis = Analysis(**analysis_data)
             session.add(analysis)
             session.commit()
             session.refresh(analysis)
-            return analysis
+            return analysis.to_dict()
 
-    def get_analysis(self, analysis_id: int) -> Optional[Analysis]:
+    def get_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
         """获取分析详情"""
         with self.get_session() as session:
-            return session.query(Analysis).filter(Analysis.id == analysis_id).first()
+            analysis = session.query(Analysis).filter(Analysis.id == analysis_id).first()
+            return analysis.to_dict() if analysis else None
 
-    def get_analyses_by_paper(self, paper_id: int) -> List[Analysis]:
+    def get_analyses_by_paper(self, paper_id: int) -> List[Dict[str, Any]]:
         """获取论文的所有分析"""
         with self.get_session() as session:
-            return session.query(Analysis).filter(
+            analyses = session.query(Analysis).filter(
                 Analysis.paper_id == paper_id
             ).order_by(Analysis.created_at.desc()).all()
+            return [a.to_dict() for a in analyses]
 
-    def update_analysis(self, analysis_id: int, analysis_data: Dict[str, Any]) -> Optional[Analysis]:
+    def update_analysis(self, analysis_id: int, analysis_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """更新分析记录"""
         with self.get_session() as session:
             analysis = session.query(Analysis).filter(Analysis.id == analysis_id).first()
@@ -225,7 +229,7 @@ class DatabaseManager:
             analysis.updated_at = datetime.utcnow()
             session.commit()
             session.refresh(analysis)
-            return analysis
+            return analysis.to_dict()
 
     def delete_analysis(self, analysis_id: int) -> bool:
         """删除分析记录"""
@@ -242,33 +246,35 @@ class DatabaseManager:
     # ResearchGap CRUD操作
     # ============================================================================
 
-    def create_research_gap(self, gap_data: Dict[str, Any]) -> ResearchGap:
+    def create_research_gap(self, gap_data: Dict[str, Any]) -> Dict[str, Any]:
         """创建研究空白"""
         with self.get_session() as session:
             gap = ResearchGap(**gap_data)
             session.add(gap)
             session.commit()
             session.refresh(gap)
-            return gap
+            return gap.to_dict()
 
-    def get_gaps_by_analysis(self, analysis_id: int) -> List[ResearchGap]:
+    def get_gaps_by_analysis(self, analysis_id: int) -> List[Dict[str, Any]]:
         """获取分析的所有研究空白"""
         with self.get_session() as session:
-            return session.query(ResearchGap).filter(
+            gaps = session.query(ResearchGap).filter(
                 ResearchGap.analysis_id == analysis_id
             ).order_by(ResearchGap.created_at.desc()).all()
+            return [gap.to_dict() for gap in gaps]
 
-    def get_priority_gaps(self, limit: int = 10) -> List[ResearchGap]:
+    def get_priority_gaps(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取高优先级研究空白"""
         with self.get_session() as session:
-            return session.query(ResearchGap).filter(
+            gaps = session.query(ResearchGap).filter(
                 and_(
                     ResearchGap.importance == 'high',
                     ResearchGap.status == 'identified'
                 )
             ).order_by(ResearchGap.created_at.desc()).limit(limit).all()
+            return [gap.to_dict() for gap in gaps]
 
-    def get_all_gaps(self, limit: int = 100, skip: int = 0, importance: str = None) -> List[ResearchGap]:
+    def get_all_gaps(self, limit: int = 100, skip: int = 0, importance: str = None) -> List[Dict[str, Any]]:
         """获取所有研究空白，支持筛选"""
         with self.get_session() as session:
             query = session.query(ResearchGap)
@@ -277,32 +283,35 @@ class DatabaseManager:
             if importance:
                 query = query.filter(ResearchGap.importance == importance)
 
-            return query.order_by(ResearchGap.created_at.desc()).offset(skip).limit(limit).all()
+            gaps = query.order_by(ResearchGap.created_at.desc()).offset(skip).limit(limit).all()
+            return [gap.to_dict() for gap in gaps]
 
-    def get_research_gap(self, gap_id: int) -> Optional[ResearchGap]:
+    def get_research_gap(self, gap_id: int) -> Optional[Dict[str, Any]]:
         """获取研究空白详情"""
         with self.get_session() as session:
-            return session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
+            gap = session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
+            return gap.to_dict() if gap else None
 
     # ============================================================================
     # GeneratedCode CRUD操作
     # ============================================================================
 
-    def create_generated_code(self, code_data: Dict[str, Any]) -> GeneratedCode:
+    def create_generated_code(self, code_data: Dict[str, Any]) -> Dict[str, Any]:
         """创建生成的代码记录"""
         with self.get_session() as session:
             code = GeneratedCode(**code_data)
             session.add(code)
             session.commit()
             session.refresh(code)
-            return code
+            return code.to_dict()
 
-    def get_code(self, code_id: int) -> Optional[GeneratedCode]:
+    def get_code(self, code_id: int) -> Optional[Dict[str, Any]]:
         """获取代码详情"""
         with self.get_session() as session:
-            return session.query(GeneratedCode).filter(GeneratedCode.id == code_id).first()
+            code = session.query(GeneratedCode).filter(GeneratedCode.id == code_id).first()
+            return code.to_dict() if code else None
 
-    def update_code(self, code_id: int, code_data: Dict[str, Any]) -> Optional[GeneratedCode]:
+    def update_code(self, code_id: int, code_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """更新代码"""
         with self.get_session() as session:
             code = session.query(GeneratedCode).filter(GeneratedCode.id == code_id).first()
@@ -316,9 +325,9 @@ class DatabaseManager:
             code.updated_at = datetime.utcnow()
             session.commit()
             session.refresh(code)
-            return code
+            return code.to_dict()
 
-    def add_user_prompt(self, code_id: int, prompt: str) -> Optional[GeneratedCode]:
+    def add_user_prompt(self, code_id: int, prompt: str) -> Optional[Dict[str, Any]]:
         """添加用户修改提示"""
         with self.get_session() as session:
             code = session.query(GeneratedCode).filter(GeneratedCode.id == code_id).first()
@@ -334,30 +343,31 @@ class DatabaseManager:
 
             session.commit()
             session.refresh(code)
-            return code
+            return code.to_dict()
 
     # ============================================================================
     # Relation CRUD操作（知识图谱）
     # ============================================================================
 
-    def create_relation(self, relation_data: Dict[str, Any]) -> Relation:
+    def create_relation(self, relation_data: Dict[str, Any]) -> Dict[str, Any]:
         """创建论文关系"""
         with self.get_session() as session:
             relation = Relation(**relation_data)
             session.add(relation)
             session.commit()
             session.refresh(relation)
-            return relation
+            return relation.to_dict()
 
-    def get_relations(self, paper_id: int) -> List[Relation]:
+    def get_relations(self, paper_id: int) -> List[Dict[str, Any]]:
         """获取论文的所有关系"""
         with self.get_session() as session:
-            return session.query(Relation).filter(
+            relations = session.query(Relation).filter(
                 or_(
                     Relation.source_id == paper_id,
                     Relation.target_id == paper_id
                 )
             ).all()
+            return [r.to_dict() for r in relations]
 
     def get_paper_graph(self, paper_ids: List[int] = None) -> Dict[str, Any]:
         """获取论文关系图数据"""

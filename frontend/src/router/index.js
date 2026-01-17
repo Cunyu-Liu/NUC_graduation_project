@@ -15,6 +15,10 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/home',
+    redirect: '/'
+  },
+  {
     path: '/analyze',
     name: 'Analyze',
     component: () => import('@/views/Analyze.vue'),
@@ -33,9 +37,19 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
-    path: '/research-gaps',
+    path: '/gaps',
     name: 'ResearchGaps',
     component: () => import('@/views/ResearchGaps.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/research-gaps',
+    redirect: '/gaps'
+  },
+  {
+    path: '/knowledge-graph',
+    name: 'KnowledgeGraph',
+    component: () => import('@/views/KnowledgeGraph.vue'),
     meta: { requiresAuth: true }
   }
 ]
