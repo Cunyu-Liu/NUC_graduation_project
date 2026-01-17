@@ -156,25 +156,32 @@ export default {
       clustering.value = true
 
       try {
-        const filepaths = selectedFiles.value.map(f => `/uploads/${f.filename}`)
+        // 使用论文ID而不是文件路径
+        const paperIds = selectedFiles.value.map(f => f.id)
         const response = await api.clusterPapers(
-          filepaths,
+          paperIds,
           options.value.nClusters,
           options.value.method,
           options.value.language
         )
 
         if (response.success) {
-          result.value = response.data
+          // 格式化结果
+          result.value = {
+            clusterCount: response.data.n_clusters,
+            clusterAnalysis: response.data.cluster_analysis
+          }
           store.commit('SET_PROGRESS', { progress: 100, message: '聚类完成!' })
           ElMessage.success('聚类分析完成!')
         } else {
           ElMessage.error(response.error || '聚类失败')
         }
       } catch (error) {
-        ElMessage.error('聚类失败: ' + error.message)
+        console.error('聚类错误:', error)
+        ElMessage.error('聚类失败: ' + (error.message || '未知错误'))
       } finally {
         clustering.value = false
+        store.commit('SHOW_PROGRESS_DIALOG', false)
       }
     }
 

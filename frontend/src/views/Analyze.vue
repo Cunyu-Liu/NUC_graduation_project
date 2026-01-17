@@ -148,23 +148,39 @@ export default {
       analyzing.value = true
 
       try {
+        console.log('[DEBUG] 开始分析, paper_id:', currentPaper.value.id)
+        console.log('[DEBUG] 分析任务:', selectedTasks.value)
+
         const response = await api.analyzePaperV4(
           currentPaper.value.id,
           selectedTasks.value,
           true  // auto_generate_code
         )
 
+        console.log('[DEBUG] 分析响应:', response)
+
         if (response.success) {
-          result.value = response.data
+          // 提取分析结果
+          const analysisData = response.data
+
+          // 格式化结果以便显示
+          result.value = {
+            summary: analysisData.summary_text,
+            keypoints: analysisData.keypoints || {},
+            gaps: analysisData.gaps || []
+          }
+
           store.commit('SET_PROGRESS', { progress: 100, message: '分析完成!' })
           ElMessage.success('分析完成!')
         } else {
           ElMessage.error(response.error || '分析失败')
         }
       } catch (error) {
-        ElMessage.error('分析失败: ' + error.message)
+        console.error('[ERROR] 分析失败:', error)
+        ElMessage.error('分析失败: ' + (error.response?.data?.error || error.message || '未知错误'))
       } finally {
         analyzing.value = false
+        store.commit('SHOW_PROGRESS_DIALOG', false)
       }
     }
 
