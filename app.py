@@ -686,7 +686,7 @@ def upload_file():
             'doi': paper.metadata.doi,
             'page_count': paper.page_count,
             'language': paper.language,
-            'metadata': {
+            'meta_data': {
                 'authors': paper.metadata.authors,
                 'keywords': paper.metadata.keywords,
                 'sections_count': len(paper.metadata.sections),
@@ -696,7 +696,12 @@ def upload_file():
             'keywords': paper.metadata.keywords
         }
 
+        print(f"[DEBUG] 准备创建论文记录: {paper_data.get('title', 'Unknown')}")
+        print(f"[DEBUG] paper_data类型: {type(paper_data)}")
+
         paper_record = db.create_paper(paper_data)
+
+        print(f"[DEBUG] 论文记录创建成功: {paper_record}")
 
         return jsonify(create_response(
             success=True,
@@ -705,6 +710,9 @@ def upload_file():
         ))
 
     except Exception as e:
+        import traceback
+        print(f"[ERROR] 上传失败: {str(e)}")
+        print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
@@ -713,10 +721,13 @@ def upload_file():
 async def analyze_paper():
     """分析论文（完整工作流）"""
     try:
+        import traceback
         data = request.get_json()
         paper_id = data.get('paper_id')
         tasks = data.get('tasks', ['summary', 'keypoints', 'gaps'])
         auto_generate_code = data.get('auto_generate_code', True)
+
+        print(f"[DEBUG] 分析请求: paper_id={paper_id}, tasks={tasks}")
 
         if not paper_id:
             return jsonify(create_response(success=False, error="缺少paper_id")), 400
@@ -724,15 +735,27 @@ async def analyze_paper():
         # 获取论文
         paper = db.get_paper(paper_id)
         if not paper:
+            print(f"[ERROR] 论文不存在: paper_id={paper_id}")
             return jsonify(create_response(success=False, error="论文不存在")), 404
 
+        print(f"[DEBUG] 论文数据: {paper}")
+
+        # paper 是字典,需要用字典方式访问
+        pdf_filename = secure_filename(paper.get('pdf_path', ''))
+        if not pdf_filename:
+            print(f"[ERROR] 论文没有pdf_path字段")
+            return jsonify(create_response(success=False, error="论文数据异常:缺少pdf_path")), 400
+
         # 安全地构建PDF路径（防止路径遍历攻击）
-        pdf_filename = secure_filename(paper.pdf_path)
         pdf_path = (Path(settings.upload_dir) / pdf_filename).resolve()
         if not str(pdf_path).startswith(str(Path(settings.upload_dir).resolve())):
             return jsonify(create_response(success=False, error="非法文件路径")), 400
+
         if not pdf_path.exists():
+            print(f"[ERROR] PDF文件不存在: {pdf_path}")
             return jsonify(create_response(success=False, error="PDF文件不存在")), 404
+
+        print(f"[DEBUG] PDF路径: {pdf_path}")
 
         # 执行工作流
         emit_progress(10, "开始分析论文", "初始化")
@@ -752,6 +775,9 @@ async def analyze_paper():
         ))
 
     except Exception as e:
+        import traceback
+        print(f"[ERROR] 分析失败: {str(e)}")
+        print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
         emit_progress(0, f"分析失败: {str(e)}", "错误")
         return jsonify(create_response(success=False, error=str(e))), 500
 
@@ -761,6 +787,7 @@ async def analyze_paper():
 async def batch_analyze_papers():
     """批量分析论文"""
     try:
+        import traceback
         data = request.get_json()
         paper_ids = data.get('paper_ids', [])
         tasks = data.get('tasks', ['summary', 'keypoints'])
@@ -773,9 +800,12 @@ async def batch_analyze_papers():
         for paper_id in paper_ids:
             paper = db.get_paper(paper_id)
             if paper:
-                pdf_path = Path(settings.upload_dir) / paper.pdf_path
-                if pdf_path.exists():
-                    pdf_paths.append(str(pdf_path))
+                # paper 是字典,需要用字典方式访问
+                pdf_filename = paper.get('pdf_path')
+                if pdf_filename:
+                    pdf_path = Path(settings.upload_dir) / pdf_filename
+                    if pdf_path.exists():
+                        pdf_paths.append(str(pdf_path))
 
         if not pdf_paths:
             return jsonify(create_response(success=False, error="没有有效的PDF文件")), 400
@@ -797,6 +827,9 @@ async def batch_analyze_papers():
         ))
 
     except Exception as e:
+        import traceback
+        print(f"[ERROR] 批量分析失败: {str(e)}")
+        print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
@@ -804,6 +837,7 @@ async def batch_analyze_papers():
 def cluster_papers():
     """主题聚类分析"""
     try:
+        import traceback
         from src.topic_clustering import TopicClustering
         from src.pdf_parser_enhanced import EnhancedPDFParser
 
@@ -822,10 +856,13 @@ def cluster_papers():
         for paper_id in paper_ids:
             paper = db.get_paper(paper_id)
             if paper:
-                pdf_path = Path(settings.upload_dir) / paper.pdf_path
-                if pdf_path.exists():
-                    pdf_paths.append(str(pdf_path))
-                    paper_titles.append(paper.title or paper.pdf_path)
+                # paper 是字典,需要用字典方式访问
+                pdf_filename = paper.get('pdf_path')
+                if pdf_filename:
+                    pdf_path = Path(settings.upload_dir) / pdf_filename
+                    if pdf_path.exists():
+                        pdf_paths.append(str(pdf_path))
+                        paper_titles.append(paper.get('title') or pdf_filename)
 
         if len(pdf_paths) < 2:
             return jsonify(create_response(success=False, error="至少需要2篇论文才能进行聚类")), 400
@@ -875,6 +912,9 @@ def cluster_papers():
         ))
 
     except Exception as e:
+        import traceback
+        print(f"[ERROR] 聚类失败: {str(e)}")
+        print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
         return jsonify(create_response(success=False, error=str(e))), 500
 
 

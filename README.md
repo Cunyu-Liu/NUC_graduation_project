@@ -139,6 +139,7 @@ python main.py optimize-db
 ```
 
 ### 6. 启动服务
+pkill -f "python app.py"
 
 ```bash
 # 启动后端（终端1）

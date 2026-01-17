@@ -6,7 +6,10 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine, and_, or_
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
-from src.database import Base, Paper, Author, Keyword, Analysis, ResearchGap, GeneratedCode, Relation, Task, User
+from src.database import (
+    Base, Paper, Author, Keyword, Analysis, ResearchGap,
+    GeneratedCode, Relation, Task, User, PaperAuthor, PaperKeyword
+)
 from datetime import datetime
 import os
 
@@ -87,8 +90,12 @@ class DatabaseManager:
                 print(f"  论文已存在: {existing.title}")
                 return existing.to_dict()
 
+            # 过滤掉不是Paper模型的字段(authors和keywords通过关系管理)
+            paper_fields = {k: v for k, v in paper_data.items()
+                          if k not in ['authors', 'keywords']}
+
             # 创建论文
-            paper = Paper(**paper_data)
+            paper = Paper(**paper_fields)
             session.add(paper)
             session.flush()  # 获取ID
 
@@ -291,6 +298,21 @@ class DatabaseManager:
         with self.get_session() as session:
             gap = session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
             return gap.to_dict() if gap else None
+
+    def update_research_gap(self, gap_id: int, gap_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """更新研究空白"""
+        with self.get_session() as session:
+            gap = session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
+            if not gap:
+                return None
+
+            for key, value in gap_data.items():
+                if hasattr(gap, key) and key != 'id':
+                    setattr(gap, key, value)
+
+            session.commit()
+            session.refresh(gap)
+            return gap.to_dict()
 
     # ============================================================================
     # GeneratedCode CRUD操作

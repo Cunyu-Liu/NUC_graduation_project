@@ -194,7 +194,7 @@ class AsyncWorkflowEngine:
             'doi': paper.metadata.doi,
             'page_count': paper.page_count,
             'language': paper.language,
-            'metadata': {
+            'meta_data': {
                 'authors': paper.metadata.authors,
                 'keywords': paper.metadata.keywords,
                 'sections_count': len(paper.metadata.sections),
@@ -393,11 +393,7 @@ class AsyncWorkflowEngine:
                 generated_code = self.db.create_generated_code(code_data)
 
                 # 更新gap状态
-                self.db.create_research_gap({
-                    'id': gap.id,
-                    'generated_code_id': generated_code.id,
-                    'status': 'code_generating'
-                })
+                self.db.update_research_gap(gap.id, {'status': 'code_generated'})
 
                 return {'gap_id': gap.id, 'code_id': generated_code.id}
             except Exception as e:
