@@ -89,6 +89,7 @@ class AsyncWorkflowEngine:
     async def execute_paper_workflow(
         self,
         pdf_path: str,
+        paper_id: int = None,
         tasks: List[str] = None,
         auto_generate_code: bool = True
     ) -> Dict[str, Any]:
@@ -97,6 +98,7 @@ class AsyncWorkflowEngine:
 
         Args:
             pdf_path: PDF文件路径
+            paper_id: 已存在的论文ID（如果提供，则跳过解析和保存）
             tasks: 要执行的任务列表
             auto_generate_code: 是否自动生成代码
 
@@ -115,18 +117,30 @@ class AsyncWorkflowEngine:
         }
 
         try:
-            # 步骤1: 上传和解析
-            print(f"\n[1/6] 解析PDF: {Path(pdf_path).name}")
-            paper = await self._parse_pdf_async(pdf_path)
+            # 步骤1: 解析PDF（如果需要）
+            if paper_id is None:
+                print(f"\n[1/6] 解析PDF: {Path(pdf_path).name}")
+                paper = await self._parse_pdf_async(pdf_path)
 
-            # 保存到数据库
-            paper_record = self._save_paper_to_db(paper)
-            result['paper_id'] = paper_record.id
+                # 保存到数据库（传递完整路径用于计算哈希）
+                # create_paper返回字典，不是对象
+                paper_record_dict = self._save_paper_to_db(paper, pdf_path)
+                paper_id = paper_record_dict['id']
+                result['paper_id'] = paper_id
+            else:
+                print(f"\n[1/6] 使用已存在的论文 ID: {paper_id}")
+                result['paper_id'] = paper_id
+                # 从数据库获取论文记录（get_paper返回字典，不是对象）
+                paper_record_dict = self.db.get_paper(paper_id)
+                if not paper_record_dict:
+                    raise ValueError(f"论文 ID {paper_id} 不存在于数据库中")
+                # 重新解析PDF用于分析
+                paper = await self._parse_pdf_async(pdf_path)
 
             # 步骤2: 异步分析（并发执行多个任务）
             print(f"\n[2/6] 开始分析...")
             analysis_result = await self._analyze_paper_async(
-                paper_record.id,
+                paper_id,  # 使用paper_id而不是paper_record.id
                 paper,
                 tasks=tasks
             )
@@ -137,19 +151,19 @@ class AsyncWorkflowEngine:
             # 步骤3: 构建知识图谱
             if 'graph' in tasks:
                 print(f"\n[3/6] 构建知识图谱...")
-                await self._build_knowledge_graph_async(paper_record.id)
+                await self._build_knowledge_graph_async(paper_id)
 
             # 步骤4: 生成洞察
             if 'gaps' in tasks:
                 print(f"\n[4/6] 生成研究洞察...")
-                gaps = await self._generate_insights_async(paper_record.id)
+                gaps = await self._generate_insights_async(paper_id)
                 result['gaps_count'] = len(gaps)
 
                 # 步骤5: 自动生成代码
                 if auto_generate_code and gaps:
                     print(f"\n[5/6] 自动生成代码...")
                     code_results = await self._generate_code_for_gaps_async(
-                        paper_record.id, gaps[:3]  # 生成前3个空白的代码
+                        paper_id, gaps[:3]  # 生成前3个空白的代码
                     )
                     result['code_generated'] = len(code_results)
 
@@ -182,13 +196,21 @@ class AsyncWorkflowEngine:
         )
         return paper
 
-    def _save_paper_to_db(self, paper: ParsedPaper):
-        """保存论文到数据库"""
+    def _save_paper_to_db(self, paper: ParsedPaper, pdf_path: str = None):
+        """保存论文到数据库
+
+        Args:
+            paper: 解析后的论文对象
+            pdf_path: PDF文件的完整路径（用于计算哈希），如果为None则使用paper.filename
+        """
+        # 使用传入的完整路径，或者使用paper.filename
+        filepath_for_hash = pdf_path if pdf_path else paper.filename
+
         paper_data = {
             'title': paper.metadata.title,
             'abstract': paper.metadata.abstract,
-            'pdf_path': paper.filename,
-            'pdf_hash': self._calculate_file_hash(paper.filename),
+            'pdf_path': paper.filename,  # 只保存文件名
+            'pdf_hash': self._calculate_file_hash(filepath_for_hash),  # 使用完整路径计算哈希
             'year': paper.metadata.year,
             'venue': paper.metadata.publication_venue,
             'doi': paper.metadata.doi,
@@ -215,12 +237,13 @@ class AsyncWorkflowEngine:
         tasks: List[str]
     ) -> Dict[str, Any]:
         """异步分析论文"""
-        # 创建分析记录
+        # 创建分析记录 - 返回字典
         analysis_data = {
             'paper_id': paper_id,
             'status': 'analyzing'
         }
-        analysis = self.db.create_analysis(analysis_data)
+        analysis_dict = self.db.create_analysis(analysis_data)
+        analysis_id = analysis_dict['id']
 
         completed = []
         failed = []
@@ -274,10 +297,10 @@ class AsyncWorkflowEngine:
 
         # 更新分析记录
         update_data['updated_at'] = datetime.utcnow()
-        self.db.update_analysis(analysis.id, update_data)
+        self.db.update_analysis(analysis_id, update_data)
 
         return {
-            'analysis_id': analysis.id,
+            'analysis_id': analysis_id,
             'completed': completed,
             'failed': failed
         }
@@ -350,17 +373,18 @@ class AsyncWorkflowEngine:
 
     async def _generate_insights_async(self, analysis_id: int) -> List[Dict[str, Any]]:
         """异步生成研究洞察"""
-        analysis = self.db.get_analysis(analysis_id)
-        if not analysis:
+        analysis_dict = self.db.get_analysis(analysis_id)
+        if not analysis_dict:
             return []
 
         # 从分析结果中提取研究空白
-        keypoints = analysis.keypoints or {}
+        keypoints = analysis_dict.get('keypoints') or {}
         gaps_data = keypoints.get('research_gaps', [])
 
         gaps = []
         for gap_desc in gaps_data:
-            gap = self.db.create_research_gap({
+            # create_research_gap返回字典
+            gap_dict = self.db.create_research_gap({
                 'analysis_id': analysis_id,
                 'gap_type': 'methodological',  # 简化
                 'description': gap_desc,
@@ -368,7 +392,7 @@ class AsyncWorkflowEngine:
                 'difficulty': 'medium',
                 'status': 'identified'
             })
-            gaps.append(gap)
+            gaps.append(gap_dict)
 
         return gaps
 
@@ -383,29 +407,30 @@ class AsyncWorkflowEngine:
 
         code_gen = CodeGenerator(llm=self.llm)
 
-        async def generate_for_gap(gap):
+        async def generate_for_gap(gap_dict):
             try:
-                print(f"    生成代码: {gap.description[:50]}...")
-                code_data = await code_gen.generate_code_async(gap)
+                # gap_dict是字典，不是对象
+                print(f"    生成代码: {gap_dict.get('description', '')[:50]}...")
+                code_data = await code_gen.generate_code_async(gap_dict)
 
-                # 保存到数据库
-                code_data['gap_id'] = gap.id
-                generated_code = self.db.create_generated_code(code_data)
+                # 保存到数据库 - create_generated_code返回字典
+                code_data['gap_id'] = gap_dict['id']
+                generated_code_dict = self.db.create_generated_code(code_data)
 
                 # 更新gap状态
-                self.db.update_research_gap(gap.id, {'status': 'code_generated'})
+                self.db.update_research_gap(gap_dict['id'], {'status': 'code_generated'})
 
-                return {'gap_id': gap.id, 'code_id': generated_code.id}
+                return {'gap_id': gap_dict['id'], 'code_id': generated_code_dict['id']}
             except Exception as e:
                 print(f"      代码生成失败: {e}")
-                return {'gap_id': gap.id, 'error': str(e)}
+                return {'gap_id': gap_dict['id'], 'error': str(e)}
 
         # 并发生成（限制并发数）- 使用当前运行中的事件循环
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        async def limited_generate(gap):
+        async def limited_generate(gap_dict):
             async with semaphore:
-                return await generate_for_gap(gap)
+                return await generate_for_gap(gap_dict)
 
         results = await asyncio.gather(
             *[limited_generate(gap) for gap in gaps],

@@ -7,6 +7,7 @@ import json
 import asyncio
 import hashlib
 import re
+import platform
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any
@@ -16,6 +17,28 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+
+# 在macOS上修复asyncio event loop问题
+# macOS上的Kqueue selector在Python 3.9中可能有问题
+if platform.system() == 'Darwin':  # macOS
+    import selectors
+    # 创建自定义的event loop policy，使用更稳定的selector
+    class MacOSEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
+        def new_event_loop(self):
+            """创建一个不使用Kqueue的事件循环"""
+            try:
+                # 尝试使用PollSelector（如果可用）
+                selector = selectors.PollSelector()
+            except (AttributeError, OSError):
+                # 回退到SelectSelector
+                selector = selectors.SelectSelector()
+
+            # 创建使用该selector的事件循环
+            loop = asyncio.SelectorEventLoop(selector)
+            return loop
+
+    # 设置自定义policy
+    asyncio.set_event_loop_policy(MacOSEventLoopPolicy())
 
 # 加载环境变量（必须在导入其他模块前）
 env_path = Path(__file__).parent / '.env'
@@ -61,14 +84,18 @@ CORS(app, resources={
     }
 })
 
-# SocketIO配置（使用eventlet模式以避免WSGI错误）
-try:
-    import eventlet
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=False)
-    SOCKETIO_MODE = 'eventlet'
-except ImportError:
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=False, engineio_logger=False)
-    SOCKETIO_MODE = 'threading'
+# SocketIO配置 - 使用threading模式以兼容asyncio
+# 注意：eventlet会monkey-patch标准库，在macOS上会破坏asyncio的Kqueue selector
+# 因此我们使用threading模式，这样可以与asyncio共存
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='threading',
+    logger=False,
+    engineio_logger=False,
+    allow_upgrades=True  # 允许升级到WebSocket
+)
+SOCKETIO_MODE = 'threading'
 
 # 初始化数据库
 db = DatabaseManager()
@@ -145,16 +172,20 @@ def emit_progress(progress: int, message: str, step: str = ""):
 
 
 def async_route(f):
-    """异步路由装饰器"""
+    """异步路由装饰器 - 使用asyncio.run()确保正确的循环管理"""
     @wraps(f)
     def wrapper(*args, **kwargs):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(f(*args, **kwargs))
-        finally:
-            loop.close()
-        return result
+            # asyncio.run() 会创建新的事件循环并正确管理生命周期
+            # 这比手动创建循环更安全，特别是在macOS上
+            result = asyncio.run(f(*args, **kwargs))
+            return result
+        except Exception as e:
+            # 记录异常以便调试
+            import traceback
+            print(f"[ERROR] async_route error: {e}")
+            traceback.print_exc()
+            raise
     return wrapper
 
 
@@ -663,8 +694,14 @@ def upload_file():
         if not allowed_file(file.filename):
             return jsonify(create_response(success=False, error="仅支持PDF文件")), 400
 
-        # 保存文件
-        filename = secure_filename(file.filename)
+        # 保存文件 - 生成唯一文件名以避免冲突
+        original_filename = file.filename
+        # 使用时间戳 + 原始文件名（去除特殊字符）生成唯一文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # 清理文件名：保留扩展名，移除特殊字符
+        file_ext = Path(original_filename).suffix or '.pdf'
+        safe_basename = secure_filename(Path(original_filename).stem) or 'paper'
+        filename = f"{timestamp}_{safe_basename}{file_ext}"
         filepath = Path(app.config['UPLOAD_FOLDER']) / filename
         file.save(str(filepath))
 
@@ -741,7 +778,8 @@ async def analyze_paper():
         print(f"[DEBUG] 论文数据: {paper}")
 
         # paper 是字典,需要用字典方式访问
-        pdf_filename = secure_filename(paper.get('pdf_path', ''))
+        # pdf_path 已经是安全的文件名，不需要再次调用 secure_filename
+        pdf_filename = paper.get('pdf_path', '')
         if not pdf_filename:
             print(f"[ERROR] 论文没有pdf_path字段")
             return jsonify(create_response(success=False, error="论文数据异常:缺少pdf_path")), 400
@@ -757,11 +795,12 @@ async def analyze_paper():
 
         print(f"[DEBUG] PDF路径: {pdf_path}")
 
-        # 执行工作流
+        # 执行工作流 - 传递paper_id避免重复保存
         emit_progress(10, "开始分析论文", "初始化")
 
         result = await workflow.execute_paper_workflow(
             pdf_path=str(pdf_path),
+            paper_id=paper_id,  # 传递已存在的论文ID
             tasks=tasks,
             auto_generate_code=auto_generate_code
         )

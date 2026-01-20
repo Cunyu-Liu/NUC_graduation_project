@@ -3,12 +3,24 @@
     <h2>论文管理</h2>
 
     <el-card>
-      <el-table :data="files" style="width: 100%">
-        <el-table-column prop="title" label="论文标题" min-width="300" />
+      <el-table :data="files" style="width: 100%" :row-style="{ height: '60px' }">
+        <el-table-column prop="title" label="论文标题" min-width="300" show-overflow-tooltip>
+          <template #default="{ row }">
+            <el-tooltip :content="row.title || '无标题'" placement="top" effect="dark">
+              <div class="table-cell-text">{{ row.title || '无标题' }}</div>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="year" label="年份" width="100" />
-        <el-table-column prop="venue" label="发表期刊/会议" width="200" />
+        <el-table-column prop="venue" label="发表期刊/会议" min-width="250" show-overflow-tooltip>
+          <template #default="{ row }">
+            <el-tooltip :content="row.venue || '未知'" placement="top" effect="dark">
+              <div class="table-cell-text">{{ row.venue || '未知' }}</div>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="上传时间" :formatter="formatTime" width="180" />
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="scope">
             <el-button size="small" @click="analyzeFile(scope.row)">
               <i class="el-icon-video-play"></i> 分析
@@ -94,5 +106,16 @@ export default {
 h2 {
   margin-bottom: 20px;
   color: #303133;
+}
+
+.table-cell-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.table-cell-text:hover {
+  color: #409EFF;
 }
 </style>
