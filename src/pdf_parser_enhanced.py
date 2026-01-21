@@ -96,13 +96,25 @@ class EnhancedPDFParser:
 
         Returns:
             ParsedPaper: 解析后的论文对象
+
+        Raises:
+            FileNotFoundError: PDF文件不存在
+            ValueError: PDF文件格式错误或损坏
         """
         pdf_path = Path(pdf_path)
 
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF文件不存在: {pdf_path}")
 
-        print(f"正在解析: {pdf_path.name}")
+        # 检查文件大小，防止处理损坏的空文件
+        file_size = pdf_path.stat().st_size
+        if file_size == 0:
+            raise ValueError(f"PDF文件为空: {pdf_path.name}")
+
+        if file_size < 1024:  # 小于1KB的文件可能有问题
+            print(f"  ⚠️  警告: PDF文件过小 ({file_size} bytes)，可能格式异常")
+
+        print(f"正在解析: {pdf_path.name} (大小: {file_size / 1024:.1f} KB)")
 
         # 提取完整文本
         full_text = self._extract_full_text(pdf_path)
@@ -269,129 +281,168 @@ class EnhancedPDFParser:
         """
         metadata = PaperMetadata()
 
-        # 使用PyMuPDF提取前几页的详细信息
+        # 首先尝试从PDF元数据中提取信息
         try:
             doc = fitz.open(pdf_path)
+            pdf_metadata = doc.metadata
 
-            # 提取第一页的文本块（标题和作者通常在第一页）
-            first_page = doc[0]
-            blocks = first_page.get_text("dict")["blocks"]
+            # 从PDF元数据中提取标题
+            if pdf_metadata.get('title') and len(pdf_metadata['title']) > 5:
+                metadata.title = pdf_metadata['title'].strip()
+                print(f"  ✓ 从PDF元数据中获取标题: {metadata.title[:50]}...")
 
-            # 提取标题（最大的字体，居中或靠上）- 改进版
-            title_candidates = []
-            seen_texts = set()  # 避免重复
+            # 从PDF元数据中提取作者
+            if pdf_metadata.get('author'):
+                authors = self._parse_authors(pdf_metadata['author'])
+                if authors:
+                    metadata.authors = authors[:10]
+                    print(f"  ✓ 从PDF元数据中获取作者: {', '.join(metadata.authors[:3])}...")
 
-            for block in blocks:
-                if "lines" in block:
-                    for line in block["lines"]:
-                        # 获取整行文本
-                        line_text = "".join([span["text"] for span in line["spans"]]).strip()
+            # 从PDF元数据中提取关键词
+            if pdf_metadata.get('keywords'):
+                keywords = [kw.strip() for kw in pdf_metadata['keywords'].split(',') if kw.strip()]
+                if keywords:
+                    metadata.keywords = keywords[:10]
+                    print(f"  ✓ 从PDF元数据中获取关键词: {', '.join(metadata.keywords[:5])}...")
 
-                        # 跳过过短或过长的文本，以及已知标题
-                        if len(line_text) < 10 or len(line_text) > 300:
-                            continue
-                        if line_text in seen_texts:
-                            continue
-
-                        # 检查是否是标题的候选
-                        # 1. 通常在前1/3的页面
-                        bbox = block["bbox"]
-                        page_height = first_page.rect.height
-                        if bbox[1] > page_height * 0.35:  # 超过页面35%的位置
-                            continue
-
-                        # 2. 字体相对较大
-                        avg_font_size = sum([span["size"] for span in line["spans"]]) / len(line["spans"])
-                        if avg_font_size < 12:  # 字体太小
-                            continue
-
-                        # 3. 排除常见非标题文本
-                        skip_patterns = [
-                            r'^Abstract$', r'^摘要$', r'^Introduction$', r'^引言$',
-                            r'^\d+\s*$',  # 纯数字
-                            r'^[A-Z]\.$',  # 单字母
-                            r'^http',  # URL
-                        ]
-                        if any(re.match(pattern, line_text, re.IGNORECASE) for pattern in skip_patterns):
-                            continue
-
-                        # 4. 计算标题得分
-                        score = 0
-                        score += avg_font_size * 2  # 字体越大得分越高
-                        score += (page_height - bbox[1]) / page_height * 10  # 越靠上得分越高
-                        if any(keyword in line_text.lower() for keyword in ['algorithm', 'method', 'system', 'approach', 'framework']):
-                            score -= 5  # 这些词不太可能是标题
-                        if len([w for w in line_text.split() if w[0].isupper()]) > len(line_text.split()) * 0.3:
-                            score += 3  # 标题通常有较多大写字母
-
-                        title_candidates.append({
-                            "text": line_text,
-                            "size": avg_font_size,
-                            "y": bbox[1],
-                            "score": score
-                        })
-                        seen_texts.add(line_text)
-
-            # 选择得分最高的候选作为标题
-            if title_candidates:
-                title_candidates.sort(key=lambda x: x["score"], reverse=True)
-                best_title = title_candidates[0]["text"]
-
-                # 清理标题（去除多余空格、换行等）
-                best_title = re.sub(r'\s+', ' ', best_title)
-                best_title = best_title.strip()
-
-                # 确保标题不以特定标点符号结尾
-                if best_title and best_title[-1] in '.,:;':
-                    best_title = best_title[:-1]
-
-                metadata.title = best_title
-
-            # 提取作者信息（通常在标题下方，字体较小）
-            author_lines = []
-            title_y = title_candidates[0]["y"] if title_candidates else 0
-
-            for block in blocks:
-                if "lines" in block:
-                    for line in block["lines"]:
-                        line_text = ""
-                        for span in line["spans"]:
-                            line_text += span["text"]
-
-                        # 只在标题下方查找作者
-                        bbox = block["bbox"]
-                        if bbox[1] < title_y + 50:  # 在标题下方50个单位内
-                            # 检测作者行（通常包含@email或特殊符号）
-                            if "@" in line_text or " and " in line_text or "，" in line_text or "University" in line_text:
-                                author_lines.append(line_text.strip())
-
-            # 解析作者
-            if author_lines:
-                all_authors = []
-                for author_line in author_lines[:3]:  # 只看前3行
-                    authors = self._parse_authors(author_line)
-                    all_authors.extend(authors)
-                # 去重
-                metadata.authors = list(dict.fromkeys(all_authors))[:10]  # 最多10个
-
-            # 提取机构信息
-            for block in blocks:
-                if "lines" in block:
-                    for line in block["lines"]:
-                        line_text = "".join([span["text"] for span in line["spans"]])
-                        # 机构通常包含University, Institute, Lab等关键词
-                        if any(keyword in line_text.lower() for keyword in
-                               ["university", "institute", "lab", "laboratory", "大学", "研究所", "实验室"]):
-                            if line_text.strip() and len(line_text.strip()) > 10:
-                                metadata.affiliations.append(line_text.strip())
-                                break
-                    if metadata.affiliations:
-                        break
+            # 从PDF元数据中提取主题（可能包含期刊信息）
+            if pdf_metadata.get('subject'):
+                subject = pdf_metadata['subject'].strip()
+                # 检查是否包含期刊或会议信息
+                if any(keyword in subject.lower() for keyword in ['journal', 'conference', 'proceedings', 'symposium']):
+                    metadata.publication_venue = subject
+                    print(f"  ✓ 从PDF元数据中获取发表信息: {metadata.publication_venue}")
 
             doc.close()
-
         except Exception as e:
-            print(f"  警告: 无法使用PyMuPDF提取详细元数据: {e}")
+            print(f"  警告: 无法读取PDF元数据: {e}")
+
+        # 使用PyMuPDF提取前几页的详细信息（如果没有从元数据中获取到标题）
+        if not metadata.title or len(metadata.title) < 10:
+            try:
+                doc = fitz.open(pdf_path)
+
+                # 提取第一页的文本块（标题和作者通常在第一页）
+                first_page = doc[0]
+                blocks = first_page.get_text("dict")["blocks"]
+
+                # 提取标题（最大的字体，居中或靠上）- 改进版
+                title_candidates = []
+                seen_texts = set()  # 避免重复
+
+                for block in blocks:
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            # 获取整行文本
+                            line_text = "".join([span["text"] for span in line["spans"]]).strip()
+
+                            # 跳过过短或过长的文本，以及已知标题
+                            if len(line_text) < 10 or len(line_text) > 300:
+                                continue
+                            if line_text in seen_texts:
+                                continue
+
+                            # 检查是否是标题的候选
+                            # 1. 通常在前1/3的页面
+                            bbox = block["bbox"]
+                            page_height = first_page.rect.height
+                            if bbox[1] > page_height * 0.35:  # 超过页面35%的位置
+                                continue
+
+                            # 2. 字体相对较大
+                            avg_font_size = sum([span["size"] for span in line["spans"]]) / len(line["spans"])
+                            if avg_font_size < 12:  # 字体太小
+                                continue
+
+                            # 3. 排除常见非标题文本
+                            skip_patterns = [
+                                r'^Abstract$', r'^摘要$', r'^Introduction$', r'^引言$',
+                                r'^\d+\s*$',  # 纯数字
+                                r'^[A-Z]\.$',  # 单字母
+                                r'^http',  # URL
+                            ]
+                            if any(re.match(pattern, line_text, re.IGNORECASE) for pattern in skip_patterns):
+                                continue
+
+                            # 4. 计算标题得分
+                            score = 0
+                            score += avg_font_size * 2  # 字体越大得分越高
+                            score += (page_height - bbox[1]) / page_height * 10  # 越靠上得分越高
+                            if any(keyword in line_text.lower() for keyword in ['algorithm', 'method', 'system', 'approach', 'framework']):
+                                score -= 5  # 这些词不太可能是标题
+                            if len([w for w in line_text.split() if w[0].isupper()]) > len(line_text.split()) * 0.3:
+                                score += 3  # 标题通常有较多大写字母
+
+                            title_candidates.append({
+                                "text": line_text,
+                                "size": avg_font_size,
+                                "y": bbox[1],
+                                "score": score
+                            })
+                            seen_texts.add(line_text)
+
+                # 选择得分最高的候选作为标题
+                if title_candidates:
+                    title_candidates.sort(key=lambda x: x["score"], reverse=True)
+                    best_title = title_candidates[0]["text"]
+
+                    # 清理标题（去除多余空格、换行等）
+                    best_title = re.sub(r'\s+', ' ', best_title)
+                    best_title = best_title.strip()
+
+                    # 确保标题不以特定标点符号结尾
+                    if best_title and best_title[-1] in '.,:;':
+                        best_title = best_title[:-1]
+
+                    metadata.title = best_title
+
+                # 如果没有找到标题，只在没有从元数据获取到作者时才提取作者
+                if not metadata.authors:
+                    # 提取作者信息（通常在标题下方，字体较小）
+                    author_lines = []
+                    title_y = title_candidates[0]["y"] if title_candidates else 0
+
+                    for block in blocks:
+                        if "lines" in block:
+                            for line in block["lines"]:
+                                line_text = ""
+                                for span in line["spans"]:
+                                    line_text += span["text"]
+
+                                # 只在标题下方查找作者
+                                bbox = block["bbox"]
+                                if bbox[1] < title_y + 50:  # 在标题下方50个单位内
+                                    # 检测作者行（通常包含@email或特殊符号）
+                                    if "@" in line_text or " and " in line_text or "，" in line_text or "University" in line_text:
+                                        author_lines.append(line_text.strip())
+
+                    # 解析作者
+                    if author_lines:
+                        all_authors = []
+                        for author_line in author_lines[:3]:  # 只看前3行
+                            authors = self._parse_authors(author_line)
+                            all_authors.extend(authors)
+                        # 去重
+                        metadata.authors = list(dict.fromkeys(all_authors))[:10]  # 最多10个
+
+                # 提取机构信息
+                for block in blocks:
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            line_text = "".join([span["text"] for span in line["spans"]])
+                            # 机构通常包含University, Institute, Lab等关键词
+                            if any(keyword in line_text.lower() for keyword in
+                                   ["university", "institute", "lab", "laboratory", "大学", "研究所", "实验室"]):
+                                if line_text.strip() and len(line_text.strip()) > 10:
+                                    metadata.affiliations.append(line_text.strip())
+                                    break
+                        if metadata.affiliations:
+                            break
+
+                doc.close()
+
+            except Exception as e:
+                print(f"  警告: 无法使用PyMuPDF提取详细元数据: {e}")
 
         # 如果没有提取到标题，使用简单方法
         if not metadata.title or len(metadata.title) < 10:
@@ -607,79 +658,123 @@ class EnhancedPDFParser:
         """提取发表信息 - 增强版"""
         # 查找会议/期刊名称模式 - 更全面
         venue_patterns = [
-            # 会议
-            r'Proceedings of\s+([^,\n]+?(?:Conference|Symposium|Workshop)[^,\n]*)',
+            # 顶级AI/ML会议优先
+            r'(?:Proceedings of\s+)?(?:the\s+)?(?:\d{1,4}\s+)?(?:AAAI|IJCAI|NeurIPS|ICML|ICLR|ACL|EMNLP|CVPR|ICCV|ECCV|ICSE|FSE|ASE|KDD|WWW|SIGIR|CIKM|ICDE|VLDB|SIGMOD)(?:\s*[\w\s]+?)(?:Conference|Symposium|Workshop)?',
+            r'(?:AAAI|IJCAI|NeurIPS|ICML|ICLR|ACL|EMNLP|CVPR|ICCV|ECCV|ICSE|FSE|ASE|KDD|WWW|SIGIR|CIKM|ICDE|VLDB|SIGMOD)\s*\d{4,}',
+            # IEEE会议
+            r'IEEE\s+([A-Za-z\s]+?)(?:Conference|Symposium|Workshop)',
+            r'Proceedings of\s+([^,\n]*?IEEE[^,\n]*?(?:Conference|Symposium|Workshop)[^,\n]*)',
+            # ACM会议
+            r'ACM\s+([A-Za-z\s]+?)(?:Conference|Symposium)',
+            r'(?:Proceedings of\s+)?(?:the\s+)?(\d{1,4}(?:st|nd|rd|th)?\s+ACM\s+(?:International\s+)?Conference\s+on\s+[^,\n]+)',
+            # 通用会议
+            r'Proceedings of\s+(?:the\s+)?([^,\n]+?(?:Conference|Symposium|Workshop)[^,\n]*)',
             r'in\s+Proceedings of\s+([^,\n]+)',
             r'(?:Presented at|at)\s+([^,\n]+?(?:Conference|Symposium|Workshop)[^,\n]*)',
-            r'([^,\n]*?(?:IEEE|ACM)[^,\n]*?(?:Conference|Symposium)[^,\n]*)',
-            # 期刊
-            r'([A-Z][a-zA-Z\s]*Journal[^,\n]*?(?:of\s+[A-Za-z]+[^,\n]*)?)',
-            r'published in\s+([^,\n]+)',
-            r'([A-Z][a-zA-Z\s]*Transactions[^,\n]*)',
-            r'([A-Z][a-zA-Z\s]*Letters[^,\n]*)',
+            # 期刊 - 更精确的模式
+            r'([A-Z][a-zA-Z\s]*?Journal\s+(?:of|on)\s+[^,\n]+?)(?:\s*,?\s*\d{4}|$)',
+            r'Transactions\s+on\s+([A-Za-z\s]+?)(?:\s*,?\s*\d{4}|$)',
+            r'([A-Za-z\s]+?Letters)(?:\s*,?\s*\d{4}|$)',
+            r'published in\s+([^,\n]+?)(?:\s*,?\s*\d{4}|\.|\n)',
             # arXiv
             r'(arXiv:\d+\.\d+(?:v\d+)?)',
+            r'(arXiv\s+preprint\s+arXiv:\d+\.\d+)',
             # 中文期刊
-            r'([^,\n]*?学报[^,\n]*)',
-            r'([^,\n]*?期刊[^,\n]*)',
+            r'([^,\n]*?学报[^,\n]*?)(?:\s*,?\s*\d{4}|$)',
+            r'([^,\n]*?期刊[^,\n]*?)(?:\s*,?\s*\d{4}|$)',
+            # Nature/Science等顶级期刊
+            r'(Nature|Science|Cell|Lancet)(?:\s+\w+)?',
         ]
 
         # 提取期刊/会议（优先匹配更具体的模式）
         for pattern in venue_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                venue = match.group(1).strip()
+                venue = match.group(1) if match.lastindex else match.group(0)
+                venue = venue.strip()
                 # 清理venue
                 venue = re.sub(r'\s+', ' ', venue)  # 合并多余空格
+                venue = re.sub(r'\d{4}', '', venue)  # 移除年份
+                venue = venue.strip(' ,.')  # 去除首尾标点
                 venue = venue[:200]  # 限制长度
                 if len(venue) > 5:  # 至少5个字符
                     metadata.publication_venue = venue
+                    print(f"  ✓ 提取到发表信息: {metadata.publication_venue}")
                     break
 
-        # 提取年份 - 更智能的匹配
+        # 提取年份 - 更智能的匹配，优先从发表信息附近提取
         year_patterns = [
-            # 直接的4位年份
-            r'\b(19|20)\d{2}\b',
+            # 发表信息附近的年份
+            r'(?:published|appeared|presented|proceedings)(?:\s+in|\s+at)?[^,.\n]{0,100}?\b(19|20)\d{2}\b',
             # Copyright后的年份
-            r'(?:©|Copyright)\s*(19|20)\d{2}',
-            # 会议日期中的年份
-            r'(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[,\s]+(\d{1,2}),?\s*(19|20)\d{2}',
+            r'(?:©|Copyright|\(c\))\s*(?:19|20)\d{2}',
+            # 会议日期中的年份（优先级高）
+            r'(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[,\s]+\d{1,2},?\s*(19|20)\d{2}',
+            # 直接的4位年份（优先级降低，避免误匹配参考年份）
+            r'\b(19|20)\d{2}\b',
         ]
 
         all_years = []
-        for pattern in year_patterns:
-            matches = re.findall(pattern, text)
-            for match in matches:
-                if isinstance(match, tuple):
-                    # 如果是元组，取最后一个数字
-                    year_str = match[-1]
-                    if len(year_str) == 4:
-                        all_years.append(int(year_str))
-                elif isinstance(match, str) and len(match) == 4:
-                    all_years.append(int(match))
+        year_positions = []  # 记录年份位置，用于判断优先级
 
-        # 选择最可能的年份（1990-2035之间，选择出现频率最高的）
-        valid_years = [y for y in all_years if 1990 <= y <= 2035]
-        if valid_years:
-            # 统计频率，选择最常见的
+        for priority, pattern in enumerate(year_patterns):
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                if isinstance(match, tuple):
+                    # 处理元组
+                    for m in match:
+                        if m and len(m) == 4 and m.isdigit():
+                            year = int(m)
+                            if 1990 <= year <= 2035:
+                                all_years.append(year)
+                                year_positions.append((priority, match.start()))
+                elif isinstance(match, str) and len(match) == 4:
+                    # 处理字符串
+                    year = int(match)
+                    if 1990 <= year <= 2035:
+                        all_years.append(year)
+                        year_positions.append((priority, match.start()))
+
+        # 选择最可能的年份（优先考虑发表信息附近的年份）
+        if all_years:
             from collections import Counter
-            year_counts = Counter(valid_years)
-            # 如果有多个年份，选择出现次数最多的；如果次数相同，选择最近的
+            year_counts = Counter(all_years)
+
+            # 首先选择出现频率最高的
             if year_counts:
-                most_common = year_counts.most_common(1)[0][0]
-                metadata.year = most_common
+                most_common_years = year_counts.most_common()
+                max_count = most_common_years[0][1]
+
+                # 在出现次数相同的年份中，选择优先级最高的（在发表信息附近的）
+                candidate_years = [y for y, count in most_common_years if count == max_count]
+
+                # 按优先级排序
+                candidate_years_with_priority = []
+                for year in candidate_years:
+                    # 找到该年份的最高优先级
+                    priorities = [p for y, (p, pos) in zip(all_years, year_positions) if y == year]
+                    if priorities:
+                        best_priority = min(priorities)  # 优先级数字越小越优先
+                        candidate_years_with_priority.append((best_priority, year))
+
+                # 选择优先级最高的，如果优先级相同选择最近的
+                if candidate_years_with_priority:
+                    candidate_years_with_priority.sort(key=lambda x: (x[0], -x[1]))
+                    metadata.year = candidate_years_with_priority[0][1]
+                    print(f"  ✓ 提取到年份: {metadata.year}")
 
         # 提取DOI - 更全面的模式
         doi_patterns = [
-            r'(?:DOI|doi):\s*(10\.\d+/[^\s\n]+)',
-            r'https?://doi\.org/(10\.\d+/[^\s\n]+)',
-            r'DOI:\s*(10\.\d{4,}/[^\s\n]+)',
+            r'(?:DOI|doi)\s*:\s*(10\.\d{4,}/[^\s\n\)]+)',
+            r'https?://doi\.org/(10\.\d{4,}/[^\s\n\)]+)',
+            r'DOI:\s*(10\.\d{4,}/[^\s\n\)]+)',
+            r'(?:dx\.doi\.org/|doi\.org/)(10\.\d{4,}/[^\s\n\)]+)',
         ]
 
         for pattern in doi_patterns:
             doi_match = re.search(pattern, text, re.IGNORECASE)
             if doi_match:
                 metadata.doi = doi_match.group(1).strip()
+                print(f"  ✓ 提取到DOI: {metadata.doi}")
                 break
 
         metadata.references_count = len(metadata.references)

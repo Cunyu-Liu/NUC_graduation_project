@@ -65,37 +65,46 @@
         >
           <template #title>
             <strong>聚类 {{ cluster[0] }}</strong>
-            <el-tag style="margin-left: 10px">{{ cluster[1].paperCount }} 篇论文</el-tag>
+            <el-tag style="margin-left: 10px">
+              {{ cluster[1]?.paper_count || 0 }} 篇论文
+            </el-tag>
           </template>
 
           <div class="cluster-content">
             <h4>核心关键词</h4>
-            <el-space wrap>
+            <el-space wrap v-if="cluster[1].top_keywords && cluster[1].top_keywords.length > 0">
               <el-tag
-                v-for="(keyword, kIndex) in cluster[1].topKeywords.slice(0, 10)"
+                v-for="(keyword, kIndex) in cluster[1].top_keywords.slice(0, 10)"
                 :key="kIndex"
                 type="success"
               >
                 {{ keyword }}
               </el-tag>
             </el-space>
+            <el-empty v-else description="暂无关键词" :image-size="60" />
 
             <h4 style="margin-top: 20px">包含论文</h4>
-            <ul>
+            <ul v-if="cluster[1].papers && cluster[1].papers.length > 0">
               <li v-for="(paper, pIndex) in cluster[1].papers" :key="pIndex">
                 {{ paper }}
               </li>
             </ul>
+            <el-empty v-else description="暂无论文" :image-size="60" />
 
             <h4 style="margin-top: 20px">代表性论文</h4>
             <div
-              v-for="(rep, rIndex) in cluster[1].representativePapers"
-              :key="rIndex"
-              class="rep-paper"
+              v-if="cluster[1].representative_papers && cluster[1].representative_papers.length > 0"
             >
-              <p><strong>{{ rep.title }}</strong></p>
-              <p class="rep-abstract">{{ rep.abstract }}</p>
+              <div
+                v-for="(rep, rIndex) in cluster[1].representative_papers"
+                :key="rIndex"
+                class="rep-paper"
+              >
+                <p><strong>{{ rep.title || '无标题' }}</strong></p>
+                <p class="rep-abstract">{{ rep.abstract || '无摘要' }}</p>
+              </div>
             </div>
+            <el-empty v-else description="暂无代表性论文" :image-size="60" />
           </div>
         </el-collapse-item>
       </el-collapse>
@@ -148,6 +157,13 @@ export default {
         return
       }
 
+      // 验证聚类数量
+      const maxClusters = Math.min(20, selectedFiles.value.length)
+      if (options.value.nClusters < 2 || options.value.nClusters > maxClusters) {
+        ElMessage.warning(`聚类数量必须在 2 到 ${maxClusters} 之间`)
+        return
+      }
+
       // 连接WebSocket
       connectSocket()
       store.commit('SHOW_PROGRESS_DIALOG', true)
@@ -158,12 +174,18 @@ export default {
       try {
         // 使用论文ID而不是文件路径
         const paperIds = selectedFiles.value.map(f => f.id)
+
+        console.log('[DEBUG] 开始聚类, paper_ids:', paperIds)
+        console.log('[DEBUG] 聚类选项:', options.value)
+
         const response = await api.clusterPapers(
           paperIds,
           options.value.nClusters,
           options.value.method,
           options.value.language
         )
+
+        console.log('[DEBUG] 聚类响应:', response)
 
         if (response.success) {
           // 格式化结果
@@ -172,13 +194,45 @@ export default {
             clusterAnalysis: response.data.cluster_analysis
           }
           store.commit('SET_PROGRESS', { progress: 100, message: '聚类完成!' })
-          ElMessage.success('聚类分析完成!')
+          ElMessage.success(`聚类分析完成! 共发现 ${response.data.n_clusters} 个主题类别`)
+
+          // 自动展开前3个聚类
+          activeClusters.value = Array.from({ length: Math.min(3, Object.keys(response.data.cluster_analysis).length) }, (_, i) => String(i))
         } else {
-          ElMessage.error(response.error || '聚类失败')
+          ElMessage.error({
+            message: response.error || '聚类失败',
+            duration: 5000,
+            showClose: true
+          })
         }
       } catch (error) {
-        console.error('聚类错误:', error)
-        ElMessage.error('聚类失败: ' + (error.message || '未知错误'))
+        console.error('[ERROR] 聚类错误:', error)
+
+        // 提供更详细的错误提示
+        let errorMsg = '聚类失败'
+        const errorDetail = error.response?.data?.error || error.message
+
+        if (errorDetail) {
+          if (errorDetail.includes('论文') || errorDetail.includes('PDF')) {
+            errorMsg = '论文加载或解析失败，请检查文件是否完整'
+          } else if (errorDetail.includes('聚类') || errorDetail.includes('算法')) {
+            errorMsg = '聚类算法执行失败，请尝试调整参数'
+          } else if (errorDetail.includes('数量') || errorDetail.includes('不足')) {
+            errorMsg = '可用论文数量不足，无法进行聚类'
+          } else if (errorDetail.includes('timeout') || errorDetail.includes('超时')) {
+            errorMsg = '聚类超时，请减少论文数量或降低聚类数量'
+          } else {
+            errorMsg = `聚类失败: ${errorDetail}`
+          }
+        } else if (error.message) {
+          errorMsg = `聚类失败: ${error.message}`
+        }
+
+        ElMessage.error({
+          message: errorMsg,
+          duration: 5000,
+          showClose: true
+        })
       } finally {
         clustering.value = false
         store.commit('SHOW_PROGRESS_DIALOG', false)

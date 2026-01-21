@@ -149,8 +149,8 @@ export default {
     const handleUserCommand = async (command) => {
       switch (command) {
         case 'profile':
-          // 可以跳转到个人信息页面或显示对话框
-          ElMessage.info('个人信息功能开发中')
+          // 跳转到个人信息页面
+          router.push('/profile')
           break
         case 'logout':
           try {

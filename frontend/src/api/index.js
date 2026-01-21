@@ -145,6 +145,9 @@ export default {
   // 获取论文详情
   getPaper: (id) => api.get(`/papers/${id}`),
 
+  // 获取论文的分析结果
+  getPaperAnalysis: (id) => api.get(`/papers/${id}/analysis`),
+
   // 更新论文
   updatePaper: (id, data) => api.put(`/papers/${id}`, data),
 

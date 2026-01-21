@@ -331,6 +331,11 @@ const resetZoom = () => {
   }
 }
 
+// 暴露方法给父组件
+defineExpose({
+  refreshGraph
+})
+
 // 生命周期
 onMounted(() => {
   initGraph()

@@ -73,6 +73,32 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 app.config['UPLOAD_FOLDER'] = str(settings.upload_dir)
 app.config['JSON_AS_ASCII'] = False
 
+# 自定义JSON序列化器，支持numpy类型
+import numpy as np
+from flask.json.provider import DefaultJSONProvider
+
+class NumpyCompatibleJSONProvider(DefaultJSONProvider):
+    """支持numpy类型的JSON序列化器"""
+
+    def default(self, obj):
+        # 处理numpy整数类型
+        if isinstance(obj, np.integer):
+            return int(obj)
+        # 处理numpy浮点类型
+        if isinstance(obj, np.floating):
+            return float(obj)
+        # 处理numpy数组
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        # 处理numpy布尔类型
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        # 其他类型使用默认处理
+        return super().default(obj)
+
+# 设置自定义JSON序列化器
+app.json = NumpyCompatibleJSONProvider(app)
+
 # CORS配置 - 支持文件上传和所有HTTP方法
 CORS(app, resources={
     r"/api/*": {
@@ -672,6 +698,78 @@ def batch_delete_papers():
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
+@app.route('/api/papers/batch-create', methods=['POST'])
+def batch_create_papers():
+    """批量创建论文"""
+    try:
+        data = request.get_json()
+        papers_data = data.get('papers', [])
+
+        if not papers_data:
+            return jsonify(create_response(success=False, error="没有提供论文数据")), 400
+
+        created_papers = db.batch_create_papers(papers_data)
+
+        return jsonify(create_response(
+            success=True,
+            data={
+                'papers': created_papers,
+                'created_count': len(created_papers)
+            },
+            message=f"成功创建 {len(created_papers)} 篇论文"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/papers/batch-get', methods=['POST'])
+def batch_get_papers():
+    """批量获取论文详情"""
+    try:
+        data = request.get_json()
+        paper_ids = data.get('paper_ids', [])
+
+        if not paper_ids:
+            return jsonify(create_response(success=False, error="没有提供论文ID列表")), 400
+
+        papers = db.batch_get_papers(paper_ids)
+
+        return jsonify(create_response(
+            success=True,
+            data={
+                'papers': papers,
+                'count': len(papers)
+            },
+            message=f"获取到 {len(papers)} 篇论文"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/papers/batch-update', methods=['POST'])
+def batch_update_papers():
+    """批量更新论文"""
+    try:
+        data = request.get_json()
+        updates = data.get('updates', [])
+
+        if not updates:
+            return jsonify(create_response(success=False, error="没有提供更新数据")), 400
+
+        updated_papers = db.batch_update_papers(updates)
+
+        return jsonify(create_response(
+            success=True,
+            data={
+                'papers': updated_papers,
+                'updated_count': len(updated_papers)
+            },
+            message=f"成功更新 {len(updated_papers)} 篇论文"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
 # ============================================================================
 # 文件上传和分析
 # ============================================================================
@@ -696,12 +794,13 @@ def upload_file():
 
         # 保存文件 - 生成唯一文件名以避免冲突
         original_filename = file.filename
-        # 使用时间戳 + 原始文件名（去除特殊字符）生成唯一文件名
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # 使用UUID确保唯一性，避免批量上传时文件名冲突
+        import uuid
+        unique_id = str(uuid.uuid4())[:8]  # 使用前8位UUID
         # 清理文件名：保留扩展名，移除特殊字符
         file_ext = Path(original_filename).suffix or '.pdf'
         safe_basename = secure_filename(Path(original_filename).stem) or 'paper'
-        filename = f"{timestamp}_{safe_basename}{file_ext}"
+        filename = f"{unique_id}_{safe_basename}{file_ext}"
         filepath = Path(app.config['UPLOAD_FOLDER']) / filename
         file.save(str(filepath))
 
@@ -748,8 +847,220 @@ def upload_file():
 
     except Exception as e:
         import traceback
-        print(f"[ERROR] 上传失败: {str(e)}")
+        error_msg = str(e)
+        print(f"[ERROR] 上传失败: {error_msg}")
         print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
+
+        # 提供更友好的错误提示
+        friendly_error = error_msg
+        if 'PDF' in error_msg or 'parse' in error_msg.lower():
+            friendly_error = "PDF解析失败，文件可能已损坏或格式不支持。请确保上传的是有效的PDF文件。"
+        elif 'hash' in error_msg.lower():
+            friendly_error = "文件哈希计算失败，请重试。"
+        elif 'database' in error_msg.lower() or 'db' in error_msg.lower():
+            friendly_error = "数据库保存失败，请检查数据库连接。"
+        elif 'title' in error_msg.lower():
+            friendly_error = "无法提取论文标题，请检查PDF文件是否包含标题信息。"
+
+        return jsonify(create_response(
+            success=False,
+            error=friendly_error,
+            detail=error_msg  # 保留原始错误信息用于调试
+        )), 500
+
+
+@app.route('/api/upload/batch', methods=['POST'])
+def batch_upload_files():
+    """批量上传PDF文件（异步任务队列）"""
+    try:
+        if 'files' not in request.files:
+            return jsonify(create_response(success=False, error="没有文件")), 400
+
+        files = request.files.getlist('files')
+
+        if not files or len(files) == 0:
+            return jsonify(create_response(success=False, error="文件列表为空")), 400
+
+        # 限制批量上传数量
+        if len(files) > 20:
+            return jsonify(create_response(success=False, error="批量上传最多支持20个文件")), 400
+
+        # 创建异步任务
+        task_data = {
+            'task_type': 'batch_upload',
+            'params': {'file_count': len(files)},
+            'status': 'pending',
+            'total_steps': len(files)
+        }
+
+        task = db.create_task(task_data)
+
+        # 启动后台任务处理
+        import threading
+        def process_batch_upload(task_id, files):
+            """后台处理批量上传"""
+            try:
+                results = {'success': [], 'failed': []}
+
+                for i, file in enumerate(files):
+                    try:
+                        # 保存文件
+                        import uuid
+                        original_filename = file.filename
+                        unique_id = str(uuid.uuid4())[:8]
+                        file_ext = Path(original_filename).suffix or '.pdf'
+                        safe_basename = secure_filename(Path(original_filename).stem) or 'paper'
+                        filename = f"{unique_id}_{safe_basename}{file_ext}"
+                        filepath = Path(app.config['UPLOAD_FOLDER']) / filename
+                        file.save(str(filepath))
+
+                        # 计算文件哈希
+                        file_hash = calculate_file_hash(str(filepath))
+
+                        # 解析PDF
+                        from src.pdf_parser_enhanced import EnhancedPDFParser
+                        parser = EnhancedPDFParser()
+                        paper = parser.parse_pdf(str(filepath))
+
+                        # 保存到数据库
+                        paper_data = {
+                            'title': paper.metadata.title,
+                            'abstract': paper.metadata.abstract,
+                            'pdf_path': filename,
+                            'pdf_hash': file_hash,
+                            'year': paper.metadata.year,
+                            'venue': paper.metadata.publication_venue,
+                            'doi': paper.metadata.doi,
+                            'page_count': paper.page_count,
+                            'language': paper.language,
+                            'meta_data': {
+                                'authors': paper.metadata.authors,
+                                'keywords': paper.metadata.keywords,
+                                'sections_count': len(paper.metadata.sections),
+                                'references_count': len(paper.metadata.references)
+                            },
+                            'authors': [{'name': name} for name in paper.metadata.authors],
+                            'keywords': paper.metadata.keywords
+                        }
+
+                        paper_record = db.create_paper(paper_data)
+                        results['success'].append({
+                            'filename': original_filename,
+                            'paper_id': paper_record['id']
+                        })
+
+                        # 更新任务进度
+                        db.update_task(task_id, {
+                            'progress': (i + 1) / len(files) * 100,
+                            'current_step': f'处理中: {original_filename}'
+                        })
+
+                    except Exception as e:
+                        results['failed'].append({
+                            'filename': file.filename,
+                            'error': str(e)
+                        })
+                        print(f"[ERROR] 处理文件失败 {file.filename}: {e}")
+
+                # 任务完成
+                db.update_task(task_id, {
+                    'status': 'completed',
+                    'progress': 100,
+                    'result': results,
+                    'current_step': f'完成: 成功 {len(results["success"])} 个, 失败 {len(results["failed"])} 个'
+                })
+
+            except Exception as e:
+                db.update_task(task_id, {
+                    'status': 'failed',
+                    'error': str(e)
+                })
+
+        # 启动后台线程
+        thread = threading.Thread(target=process_batch_upload, args=(task.id, files))
+        thread.daemon = True
+        thread.start()
+
+        return jsonify(create_response(
+            success=True,
+            data={'task_id': task.id, 'total_files': len(files)},
+            message=f"批量上传任务已创建，共 {len(files)} 个文件"
+        ))
+
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        print(f"[ERROR] 批量上传失败: {error_msg}")
+        print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
+
+        # 提供更友好的错误提示
+        friendly_error = error_msg
+        if 'files' in error_msg.lower():
+            friendly_error = "文件读取失败，请检查文件格式。"
+        elif 'database' in error_msg.lower():
+            friendly_error = "数据库连接失败，请检查数据库服务是否正常运行。"
+
+        return jsonify(create_response(
+            success=False,
+            error=friendly_error
+        )), 500
+
+
+@app.route('/api/tasks/<int:task_id>', methods=['GET'])
+def get_task_status(task_id: int):
+    """获取任务状态"""
+    try:
+        task = db.get_task(task_id)
+        if not task:
+            return jsonify(create_response(success=False, error="任务不存在")), 404
+
+        return jsonify(create_response(
+            success=True,
+            data=task.to_dict()
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/papers/<int:paper_id>/analysis', methods=['GET'])
+def get_paper_analysis(paper_id: int):
+    """获取论文的最新分析结果"""
+    try:
+        # 获取论文的所有分析记录
+        analyses = db.get_analyses_by_paper(paper_id)
+
+        if not analyses:
+            return jsonify(create_response(
+                success=True,
+                data=None,
+                message="该论文暂无分析记录"
+            ))
+
+        # 获取最新的分析记录（第一个）
+        latest_analysis = analyses[0]
+        analysis_id = latest_analysis['id']
+
+        # 获取研究空白
+        gaps = db.get_gaps_by_analysis(analysis_id)
+
+        # 组装返回数据
+        response_data = {
+            'paper_id': paper_id,
+            'analysis_id': analysis_id,
+            'summary_text': latest_analysis.get('summary_text', ''),
+            'keypoints': latest_analysis.get('keypoints', {}),
+            'gaps': gaps,
+            'status': latest_analysis.get('status', 'unknown'),
+            'created_at': latest_analysis.get('created_at')
+        }
+
+        return jsonify(create_response(
+            success=True,
+            data=response_data,
+            message="获取分析结果成功"
+        ))
+
+    except Exception as e:
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
@@ -805,13 +1116,39 @@ async def analyze_paper():
             auto_generate_code=auto_generate_code
         )
 
-        emit_progress(100, "分析完成", "完成")
+        # 从数据库获取完整的分析结果
+        analysis_id = result.get('analysis_id')
+        if analysis_id:
+            analysis_dict = db.get_analysis(analysis_id)
 
-        return jsonify(create_response(
-            success=True,
-            data=result,
-            message="论文分析完成"
-        ))
+            # 获取研究空白
+            gaps = db.get_gaps_by_analysis(analysis_id)
+
+            # 组装返回数据（包含前端需要的所有字段）
+            response_data = {
+                'paper_id': paper_id,
+                'analysis_id': analysis_id,
+                'summary_text': analysis_dict.get('summary_text', ''),
+                'keypoints': analysis_dict.get('keypoints', {}),
+                'gaps': gaps,
+                'status': result.get('status', 'unknown'),
+                'duration': result.get('duration', 0)
+            }
+
+            emit_progress(100, "分析完成", "完成")
+
+            return jsonify(create_response(
+                success=True,
+                data=response_data,
+                message="论文分析完成"
+            ))
+        else:
+            # 工作流失败，返回错误信息
+            return jsonify(create_response(
+                success=False,
+                error=result.get('error', '分析失败'),
+                data=result
+            ))
 
     except Exception as e:
         import traceback
@@ -881,68 +1218,151 @@ def cluster_papers():
         from src.pdf_parser_enhanced import EnhancedPDFParser
 
         data = request.get_json()
+        if not data:
+            return jsonify(create_response(success=False, error="请求数据为空")), 400
+
         paper_ids = data.get('paper_ids', [])
         n_clusters = data.get('n_clusters', 5)
         method = data.get('method', 'kmeans')
         language = data.get('language', 'chinese')
 
-        if not paper_ids:
-            return jsonify(create_response(success=False, error="缺少paper_ids")), 400
+        # 参数验证
+        if not paper_ids or not isinstance(paper_ids, list):
+            return jsonify(create_response(success=False, error="缺少paper_ids参数或格式错误")), 400
+
+        if len(paper_ids) < 2:
+            return jsonify(create_response(success=False, error="至少需要2篇论文才能进行聚类")), 400
+
+        if n_clusters < 2 or n_clusters > min(20, len(paper_ids)):
+            return jsonify(create_response(success=False, error=f"聚类数量必须在2到{min(20, len(paper_ids))}之间")), 400
+
+        if method not in ['kmeans', 'dbscan', 'hierarchical']:
+            return jsonify(create_response(success=False, error="不支持的聚类方法")), 400
 
         # 获取论文PDF路径
         pdf_paths = []
         paper_titles = []
+        missing_papers = []
+
         for paper_id in paper_ids:
-            paper = db.get_paper(paper_id)
-            if paper:
-                # paper 是字典,需要用字典方式访问
-                pdf_filename = paper.get('pdf_path')
-                if pdf_filename:
-                    pdf_path = Path(settings.upload_dir) / pdf_filename
-                    if pdf_path.exists():
-                        pdf_paths.append(str(pdf_path))
-                        paper_titles.append(paper.get('title') or pdf_filename)
+            try:
+                paper = db.get_paper(paper_id)
+                if paper:
+                    pdf_filename = paper.get('pdf_path')
+                    if pdf_filename:
+                        pdf_path = Path(settings.upload_dir) / pdf_filename
+                        if pdf_path.exists():
+                            pdf_paths.append(str(pdf_path))
+                            paper_titles.append(paper.get('title') or pdf_filename)
+                        else:
+                            missing_papers.append(f"论文ID {paper_id}: PDF文件不存在")
+                    else:
+                        missing_papers.append(f"论文ID {paper_id}: 未找到PDF路径")
+                else:
+                    missing_papers.append(f"论文ID {paper_id}: 论文不存在")
+            except Exception as e:
+                missing_papers.append(f"论文ID {paper_id}: {str(e)}")
+
+        if missing_papers:
+            return jsonify(create_response(
+                success=False,
+                error=f"部分论文加载失败: {'; '.join(missing_papers)}"
+            )), 400
 
         if len(pdf_paths) < 2:
-            return jsonify(create_response(success=False, error="至少需要2篇论文才能进行聚类")), 400
+            return jsonify(create_response(success=False, error="成功加载的论文数量不足2篇，无法进行聚类")), 400
 
         # 解析PDF
+        emit_progress(10, f"正在解析 {len(pdf_paths)} 篇论文...", "解析中")
+
         parser = EnhancedPDFParser()
         papers = []
-        for pdf_path in pdf_paths:
+        parse_errors = []
+
+        for i, pdf_path in enumerate(pdf_paths):
             try:
+                emit_progress(10 + int(30 * i / len(pdf_paths)), f"解析论文 {i+1}/{len(pdf_paths)}", "解析中")
                 paper = parser.parse_pdf(pdf_path)
-                papers.append(paper)
+                if paper and paper.metadata:
+                    papers.append(paper)
+                else:
+                    parse_errors.append(f"{Path(pdf_path).name}: 解析结果为空")
             except Exception as e:
-                print(f"解析PDF失败 {pdf_path}: {e}")
+                parse_errors.append(f"{Path(pdf_path).name}: {str(e)}")
+                print(f"[WARNING] 解析PDF失败 {pdf_path}: {e}")
+
+        if parse_errors:
+            print(f"[WARNING] 部分论文解析失败: {'; '.join(parse_errors)}")
 
         if len(papers) < 2:
-            return jsonify(create_response(success=False, error="成功解析的论文数量不足")), 400
+            return jsonify(create_response(
+                success=False,
+                error=f"成功解析的论文数量不足（{len(papers)}篇），无法进行聚类。错误: {'; '.join(parse_errors)}"
+            )), 400
 
         # 执行聚类
-        emit_progress(20, f"开始聚类分析 {len(papers)} 篇论文", "聚类中")
+        emit_progress(50, f"开始聚类分析 {len(papers)} 篇论文", "聚类中")
 
-        clustering = TopicClustering(
-            n_clusters=n_clusters,
-            clustering_method=method,
-            language=language
-        )
+        try:
+            clustering = TopicClustering(
+                n_clusters=n_clusters,
+                clustering_method=method,
+                language=language
+            )
 
-        result = clustering.cluster_papers(
-            papers=papers,
-            save_visualization=False,
-            save_report=False
-        )
+            result = clustering.cluster_papers(
+                papers=papers,
+                save_visualization=False,
+                save_report=False
+            )
 
-        emit_progress(100, "聚类分析完成", "完成")
+            if not result or 'cluster_analysis' not in result:
+                return jsonify(create_response(success=False, error="聚类分析返回结果异常")), 500
+
+        except Exception as e:
+            print(f"[ERROR] 聚类算法执行失败: {e}")
+            print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
+            return jsonify(create_response(
+                success=False,
+                error=f"聚类算法执行失败: {str(e)}"
+            )), 500
+
+        emit_progress(90, "正在格式化结果...", "完成中")
+
+        # 转换numpy类型为Python原生类型（处理字典键）
+        def convert_numpy_dict(obj):
+            """递归转换numpy字典的键为Python原生类型"""
+            if isinstance(obj, dict):
+                new_dict = {}
+                for key, value in obj.items():
+                    # 转换numpy类型的键
+                    if isinstance(key, np.integer):
+                        new_key = int(key)
+                    elif isinstance(key, np.floating):
+                        new_key = float(key)
+                    else:
+                        new_key = key
+                    # 递归处理值
+                    new_dict[new_key] = convert_numpy_dict(value)
+                return new_dict
+            elif isinstance(obj, list):
+                return [convert_numpy_dict(item) for item in obj]
+            else:
+                return obj
 
         # 格式化返回数据
-        formatted_result = {
-            'n_clusters': result['unique_clusters'],
-            'cluster_analysis': result['cluster_analysis'],
-            'papers': paper_titles,
-            'labels': result['labels'].tolist()
-        }
+        try:
+            formatted_result = {
+                'n_clusters': int(result['unique_clusters']),
+                'cluster_analysis': convert_numpy_dict(result['cluster_analysis']),
+                'papers': paper_titles,
+                'labels': result['labels'].tolist() if hasattr(result['labels'], 'tolist') else list(result['labels'])
+            }
+        except Exception as e:
+            print(f"[ERROR] 结果格式化失败: {e}")
+            return jsonify(create_response(success=False, error=f"结果格式化失败: {str(e)}")), 500
+
+        emit_progress(100, "聚类分析完成", "完成")
 
         return jsonify(create_response(
             success=True,
@@ -954,7 +1374,7 @@ def cluster_papers():
         import traceback
         print(f"[ERROR] 聚类失败: {str(e)}")
         print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
-        return jsonify(create_response(success=False, error=str(e))), 500
+        return jsonify(create_response(success=False, error=f"聚类失败: {str(e)}")), 500
 
 
 # ============================================================================

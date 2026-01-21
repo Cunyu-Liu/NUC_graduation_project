@@ -51,6 +51,12 @@ const routes = [
     name: 'KnowledgeGraph',
     component: () => import('@/views/KnowledgeGraph.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/profile',
+    name: 'Profile',
+    component: () => import('@/views/Profile.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

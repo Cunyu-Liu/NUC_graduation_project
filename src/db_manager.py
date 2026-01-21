@@ -195,6 +195,101 @@ class DatabaseManager:
             print(f"  ✓ 批量删除 {count} 篇论文")
             return count
 
+    def batch_create_papers(self, papers_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """批量创建论文"""
+        created_papers = []
+        with self.get_session() as session:
+            for paper_data in papers_data:
+                try:
+                    # 检查是否已存在（通过pdf_hash）
+                    existing = session.query(Paper).filter(
+                        Paper.pdf_hash == paper_data.get('pdf_hash')
+                    ).first()
+
+                    if existing:
+                        print(f"  论文已存在，跳过: {existing.title[:60]}")
+                        created_papers.append(existing.to_dict())
+                        continue
+
+                    # 过滤掉不是Paper模型的字段
+                    paper_fields = {k: v for k, v in paper_data.items()
+                                  if k not in ['authors', 'keywords']}
+
+                    # 创建论文
+                    paper = Paper(**paper_fields)
+                    session.add(paper)
+                    session.flush()  # 获取ID
+
+                    # 添加作者
+                    if 'authors' in paper_data:
+                        for author_data in paper_data['authors']:
+                            self._add_author_to_paper(session, paper.id, author_data)
+
+                    # 添加关键词
+                    if 'keywords' in paper_data:
+                        for keyword_data in paper_data['keywords']:
+                            self._add_keyword_to_paper(session, paper.id, keyword_data)
+
+                    session.flush()
+                    print(f"  ✓ 批量创建论文: {paper.title[:60]}")
+                    created_papers.append(paper.to_dict())
+
+                except Exception as e:
+                    print(f"  ✗ 创建论文失败: {str(e)}")
+                    session.rollback()
+                    continue
+
+            session.commit()
+        return created_papers
+
+    def batch_get_papers(self, paper_ids: List[int]) -> List[Dict[str, Any]]:
+        """批量获取论文详情"""
+        with self.get_session() as session:
+            papers = session.query(Paper).filter(Paper.id.in_(paper_ids)).all()
+            return [paper.to_dict() for paper in papers]
+
+    def batch_update_papers(self, updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        批量更新论文
+
+        Args:
+            updates: 更新列表，每个元素包含 'paper_id' 和要更新的字段
+            例如: [{'paper_id': 1, 'title': '新标题'}, {'paper_id': 2, 'year': 2024}]
+
+        Returns:
+            更新后的论文列表
+        """
+        updated_papers = []
+        with self.get_session() as session:
+            for update_data in updates:
+                try:
+                    paper_id = update_data.pop('paper_id', None)
+                    if not paper_id:
+                        continue
+
+                    paper = session.query(Paper).filter(Paper.id == paper_id).first()
+                    if not paper:
+                        print(f"  ✗ 论文不存在: paper_id={paper_id}")
+                        continue
+
+                    # 更新字段
+                    for key, value in update_data.items():
+                        if hasattr(paper, key):
+                            setattr(paper, key, value)
+
+                    paper.updated_at = datetime.utcnow()
+                    session.flush()
+                    print(f"  ✓ 批量更新论文: {paper.title[:60]}")
+                    updated_papers.append(paper.to_dict())
+
+                except Exception as e:
+                    print(f"  ✗ 更新论文失败: {str(e)}")
+                    session.rollback()
+                    continue
+
+            session.commit()
+        return updated_papers
+
     # ============================================================================
     # Analysis CRUD操作
     # ============================================================================

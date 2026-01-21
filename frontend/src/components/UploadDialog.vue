@@ -67,23 +67,66 @@ export default {
 
     const handleSuccess = (response, file) => {
       if (response.success) {
-        ElMessage.success(`${file.name} 上传成功`)
+        ElMessage.success({
+          message: `${file.name} 上传成功`,
+          duration: 3000,
+          showClose: true
+        })
         emit('uploaded', response.data)
         fileList.value = []
       } else {
-        ElMessage.error(response.error || '上传失败')
+        // 显示友好的错误提示
+        const errorMsg = response.error || '上传失败'
+
+        // 根据错误类型显示不同的提示
+        if (errorMsg.includes('PDF')) {
+          ElMessage.error({
+            message: `PDF解析失败：${file.name}`,
+            description: '请确保文件是有效的PDF格式且未损坏',
+            duration: 5000,
+            showClose: true
+          })
+        } else if (errorMsg.includes('数据库')) {
+          ElMessage.error({
+            message: '数据库保存失败',
+            description: '请检查数据库连接是否正常',
+            duration: 5000,
+            showClose: true
+          })
+        } else {
+          ElMessage.error({
+            message: errorMsg,
+            duration: 4000,
+            showClose: true
+          })
+        }
       }
     }
 
     const handleError = (error) => {
       console.error('上传错误:', error)
-      if (error.message && error.message.includes('403')) {
-        ElMessage.error('上传失败：权限错误，请检查后端CORS配置')
-      } else if (error.message && error.message.includes('Network Error')) {
-        ElMessage.error('网络错误：请检查后端服务是否启动（端口5001）')
-      } else {
-        ElMessage.error('上传失败: ' + (error.message || '未知错误'))
+
+      let errorMsg = '上传失败'
+
+      if (error.message) {
+        if (error.message.includes('403') || error.message.includes('CORS')) {
+          errorMsg = '权限错误：请检查后端CORS配置'
+        } else if (error.message.includes('Network Error')) {
+          errorMsg = '网络错误：请检查后端服务是否启动（端口5001）'
+        } else if (error.message.includes('timeout')) {
+          errorMsg = '上传超时：文件可能过大，请尝试更小的文件'
+        } else if (error.message.includes('413')) {
+          errorMsg = '文件过大：单个文件不能超过50MB'
+        } else {
+          errorMsg = `上传失败: ${error.message}`
+        }
       }
+
+      ElMessage.error({
+        message: errorMsg,
+        duration: 5000,
+        showClose: true
+      })
     }
 
     return {
