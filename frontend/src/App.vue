@@ -4,26 +4,25 @@
       <!-- 顶部导航栏 -->
       <el-header class="header">
         <div class="header-content">
-          <h1 class="title">
-            <i class="el-icon-document"></i>
-            科研文献智能分析系统
-          </h1>
+          <div class="logo">
+            <el-icon :size="28" color="#fff"><Document /></el-icon>
+            <h1 class="title">科研文献智能分析系统</h1>
+          </div>
           <div class="header-right">
-            <el-badge :value="uploadedCount" class="item">
-              <el-button type="primary" @click="showUploadDialog">
-                <i class="el-icon-upload"></i> 上传论文
-              </el-button>
-            </el-badge>
+            <el-button type="primary" @click="showUploadDialog" class="upload-btn">
+              <el-icon><Upload /></el-icon>
+              <span>上传论文</span>
+            </el-button>
 
             <!-- 用户信息 -->
             <el-dropdown @command="handleUserCommand" class="user-dropdown">
-              <span class="user-info">
+              <div class="user-info">
                 <el-avatar :size="32" :src="userAvatar" class="user-avatar">
                   {{ userInitial }}
                 </el-avatar>
                 <span class="username">{{ currentUser?.full_name || currentUser?.username }}</span>
-                <i class="el-icon-arrow-down el-icon--right"></i>
-              </span>
+                <el-icon color="#fff"><ArrowDown /></el-icon>
+              </div>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item disabled class="user-info-item">
@@ -33,10 +32,10 @@
                     </div>
                   </el-dropdown-item>
                   <el-dropdown-item divided command="profile">
-                    <i class="el-icon-user"></i> 个人信息
+                    <el-icon><User /></el-icon> 个人信息
                   </el-dropdown-item>
                   <el-dropdown-item command="logout">
-                    <i class="el-icon-switch-button"></i> 退出登录
+                    <el-icon><SwitchButton /></el-icon> 退出登录
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -47,42 +46,43 @@
 
       <el-container>
         <!-- 侧边栏菜单 -->
-        <el-aside width="200px" class="aside">
+        <el-aside width="220px" class="aside">
           <el-menu
             :default-active="currentRoute"
             router
             class="menu"
-            background-color="#304156"
-            text-color="#bfcbd9"
-            active-text-color="#409eff"
+            background-color="#001529"
+            text-color="rgba(255,255,255,0.65)"
+            active-text-color="#fff"
+            :collapse-transition="false"
           >
             <el-menu-item index="/home">
-              <i class="el-icon-house"></i>
+              <el-icon><HomeFilled /></el-icon>
               <span>首页</span>
             </el-menu-item>
 
             <el-menu-item index="/analyze">
-              <i class="el-icon-document"></i>
+              <el-icon><Document /></el-icon>
               <span>单篇分析</span>
             </el-menu-item>
 
             <el-menu-item index="/cluster">
-              <i class="el-icon-data-analysis"></i>
+              <el-icon><DataAnalysis /></el-icon>
               <span>聚类分析</span>
             </el-menu-item>
 
             <el-menu-item index="/files">
-              <i class="el-icon-folder"></i>
+              <el-icon><Folder /></el-icon>
               <span>文件管理</span>
             </el-menu-item>
 
             <el-menu-item index="/gaps">
-              <i class="el-icon-search"></i>
+              <el-icon><Search /></el-icon>
               <span>研究空白</span>
             </el-menu-item>
 
             <el-menu-item index="/knowledge-graph">
-              <i class="el-icon-share"></i>
+              <el-icon><Share /></el-icon>
               <span>知识图谱</span>
             </el-menu-item>
           </el-menu>
@@ -111,6 +111,10 @@ import { computed } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Document, Upload, ArrowDown, User, SwitchButton,
+  HomeFilled, DataAnalysis, Folder, Search, Share
+} from '@element-plus/icons-vue'
 import UploadDialog from '@/components/UploadDialog.vue'
 import ProgressDialog from '@/components/ProgressDialog.vue'
 
@@ -118,7 +122,9 @@ export default {
   name: 'App',
   components: {
     UploadDialog,
-    ProgressDialog
+    ProgressDialog,
+    Document, Upload, ArrowDown, User, SwitchButton,
+    HomeFilled, DataAnalysis, Folder, Search, Share
   },
   setup() {
     const store = useStore()
@@ -127,7 +133,6 @@ export default {
 
     const isAuthenticated = computed(() => store.getters.isAuthenticated)
     const currentUser = computed(() => store.getters.currentUser)
-    const uploadedCount = computed(() => store.state.files.length)
     const currentRoute = computed(() => route.path)
 
     // 用户头像（默认使用首字母）
@@ -149,7 +154,6 @@ export default {
     const handleUserCommand = async (command) => {
       switch (command) {
         case 'profile':
-          // 跳转到个人信息页面
           router.push('/profile')
           break
         case 'logout':
@@ -163,8 +167,6 @@ export default {
                 type: 'warning'
               }
             )
-
-            // 退出登录
             await store.dispatch('logout')
             ElMessage.success('已退出登录')
             router.push('/login')
@@ -178,7 +180,6 @@ export default {
     return {
       isAuthenticated,
       currentUser,
-      uploadedCount,
       currentRoute,
       userAvatar,
       userInitial,
@@ -198,8 +199,9 @@ export default {
 }
 
 #app {
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   height: 100vh;
@@ -209,12 +211,14 @@ export default {
   height: 100%;
 }
 
+/* 顶部导航栏 - 深色简洁风格 */
 .header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #001529;
   color: white;
   padding: 0 !important;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-  height: 60px !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  height: 64px !important;
+  line-height: 64px;
 }
 
 .header-content {
@@ -222,64 +226,101 @@ export default {
   justify-content: space-between;
   align-items: center;
   height: 100%;
-  padding: 0 30px;
+  padding: 0 24px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .title {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 500;
   margin: 0;
-  display: flex;
-  align-items: center;
+  color: #fff;
+  letter-spacing: 0.5px;
 }
 
-.title i {
-  margin-right: 10px;
-}
-
+/* 侧边栏 - 深色菜单 */
 .aside {
-  background-color: #304156;
-  overflow-x: hidden;
+  background-color: #001529;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+  z-index: 10;
 }
 
 .menu {
   border: none;
   height: 100%;
+  padding-top: 16px;
 }
 
 .menu .el-menu-item {
-  min-height: 50px;
-  line-height: 50px;
+  height: 48px;
+  line-height: 48px;
+  margin: 4px 0;
+  padding-left: 24px !important;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.menu .el-menu-item:hover {
+  background-color: #1890ff !important;
+  color: #fff !important;
+}
+
+.menu .el-menu-item.is-active {
+  background-color: #1890ff !important;
+  color: #fff !important;
 }
 
 .menu .el-menu-item i {
-  margin-right: 8px;
+  margin-right: 10px;
+  font-size: 16px;
 }
 
+/* 主内容区 */
 .main {
-  background-color: #f5f7fa;
-  padding: 20px;
+  background-color: #f0f2f5;
+  padding: 24px;
   overflow-y: auto;
 }
 
-/* 用户相关样式 */
+/* 头部右侧 */
 .header-right {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 24px;
+}
+
+.upload-btn {
+  background-color: #1890ff;
+  border-color: #1890ff;
+  height: 36px;
+  padding: 0 20px;
+}
+
+.upload-btn:hover {
+  background-color: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.upload-btn span {
+  margin-left: 6px;
 }
 
 .user-dropdown {
-  margin-left: 20px;
+  cursor: pointer;
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  cursor: pointer;
-  padding: 5px 10px;
-  border-radius: 8px;
-  transition: background-color 0.3s ease;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.3s;
 }
 
 .user-info:hover {
@@ -287,16 +328,16 @@ export default {
 }
 
 .user-avatar {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background-color: #1890ff;
   color: white;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .username {
-  margin: 0 8px;
-  font-size: 15px;
-  font-weight: 500;
-  max-width: 150px;
+  font-size: 14px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.85);
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -307,18 +348,127 @@ export default {
 }
 
 .user-detail {
-  padding: 10px 15px;
+  padding: 12px 16px;
+  min-width: 160px;
 }
 
 .user-detail-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: #2d3748;
+  font-size: 14px;
+  font-weight: 500;
+  color: #262626;
   margin-bottom: 4px;
 }
 
 .user-detail-email {
-  font-size: 13px;
-  color: #718096;
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+/* 卡片样式统一 */
+.el-card {
+  border-radius: 8px;
+  border: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 6px rgba(0, 0, 0, 0.04) !important;
+  transition: all 0.3s;
+}
+
+.el-card:hover {
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08), 0 6px 16px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* 按钮样式 */
+.el-button {
+  border-radius: 6px;
+  font-weight: 400;
+}
+
+.el-button--primary {
+  background-color: #1890ff;
+  border-color: #1890ff;
+}
+
+.el-button--primary:hover {
+  background-color: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.el-button--success {
+  background-color: #52c41a;
+  border-color: #52c41a;
+}
+
+.el-button--success:hover {
+  background-color: #73d13d;
+  border-color: #73d13d;
+}
+
+.el-button--danger {
+  background-color: #ff4d4f;
+  border-color: #ff4d4f;
+}
+
+.el-button--danger:hover {
+  background-color: #ff7875;
+  border-color: #ff7875;
+}
+
+/* 表格样式 */
+.el-table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.el-table th {
+  background-color: #fafafa !important;
+  font-weight: 500;
+  color: #262626;
+}
+
+/* 标签样式 */
+.el-tag {
+  border-radius: 4px;
+  font-weight: 400;
+}
+
+/* 输入框样式 */
+.el-input__wrapper {
+  border-radius: 6px;
+}
+
+/* 分页样式 */
+.el-pagination {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* 空状态样式 */
+.el-empty {
+  padding: 48px 0;
+}
+
+/* 对话框样式 */
+.el-dialog {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.el-dialog__header {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 20px 24px;
+  margin-right: 0;
+}
+
+.el-dialog__title {
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.el-dialog__body {
+  padding: 24px;
+}
+
+.el-dialog__footer {
+  border-top: 1px solid #f0f0f0;
+  padding: 16px 24px;
 }
 </style>

@@ -350,18 +350,22 @@ const saveEdit = async () => {
     saving.value = true
 
     // 构建更新数据，只包含 Paper 模型支持的字段
-    const updateData = {
-      title: editForm.value.title,
-      year: editForm.value.year,
-      venue: editForm.value.venue
+    const updateData = {}
+    
+    // 标题必填
+    if (editForm.value.title !== undefined) {
+      updateData.title = editForm.value.title
     }
-
-    // 移除undefined或null的值
-    Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined || updateData[key] === null) {
-        delete updateData[key]
-      }
-    })
+    
+    // 年份可以是数字或 null
+    if (editForm.value.year !== undefined) {
+      updateData.year = editForm.value.year ? parseInt(editForm.value.year) : null
+    }
+    
+    // 期刊/会议
+    if (editForm.value.venue !== undefined) {
+      updateData.venue = editForm.value.venue
+    }
 
     const response = await api.updatePaper(editForm.value.id, updateData)
 
@@ -559,63 +563,39 @@ onMounted(() => {
 
 .batch-actions-card {
   margin-bottom: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
+  background-color: #e6f7ff;
+  border: 1px solid #91d5ff;
 }
 
 .batch-actions-card :deep(.el-card__body) {
-  padding: 15px 20px;
+  padding: 16px 20px;
 }
 
 .batch-actions {
   display: flex;
   align-items: center;
   gap: 20px;
-  color: white;
+  color: #262626;
 }
 
 .batch-info {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16px;
+  font-size: 14px;
+  color: #1890ff;
+  font-weight: 500;
 }
 
 .batch-icon {
-  font-size: 24px;
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  font-size: 20px;
+  color: #1890ff;
 }
 
 .batch-buttons {
   display: flex;
   gap: 10px;
   flex: 1;
-}
-
-.batch-buttons .el-button {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: white;
-}
-
-.batch-buttons .el-button:hover {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.batch-buttons .el-button.is-disabled {
-  background: rgba(0, 0, 0, 0.2);
-  border-color: rgba(0, 0, 0, 0.2);
-  color: rgba(255, 255, 255, 0.5);
 }
 
 .table-card {

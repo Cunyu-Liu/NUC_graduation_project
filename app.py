@@ -197,23 +197,7 @@ def emit_progress(progress: int, message: str, step: str = ""):
     })
 
 
-def async_route(f):
-    """异步路由装饰器 - Flask 3.x+ 原生支持协程"""
-    # Flask 3.x+ 原生支持异步视图函数，此装饰器保留用于兼容性
-    # 并添加统一的错误处理
-    @wraps(f)
-    async def wrapper(*args, **kwargs):
-        try:
-            return await f(*args, **kwargs)
-        except Exception as e:
-            import traceback
-            print(f"[ERROR] async_route error: {e}")
-            traceback.print_exc()
-            return jsonify(create_response(
-                success=False, 
-                error=f"服务器内部错误: {str(e)}"
-            )), 500
-    return wrapper
+# 移除 async_route 装饰器，Flask 3.x+ 原生支持 async def 视图函数
 
 
 # ============================================================================
@@ -1078,7 +1062,6 @@ def get_paper_analysis(paper_id: int):
 
 
 @app.route('/api/analyze', methods=['POST'])
-@async_route
 async def analyze_paper():
     """分析论文（完整工作流）"""
     try:
@@ -1172,7 +1155,6 @@ async def analyze_paper():
 
 
 @app.route('/api/batch-analyze', methods=['POST'])
-@async_route
 async def batch_analyze_papers():
     """批量分析论文"""
     try:
@@ -1551,7 +1533,6 @@ def export_cluster_report():
 # ============================================================================
 
 @app.route('/api/gaps/<int:gap_id>/generate-code', methods=['POST'])
-@async_route
 async def generate_gap_code(gap_id: int):
     """为研究空白生成代码"""
     try:
@@ -1617,7 +1598,6 @@ def get_code(code_id: int):
 
 
 @app.route('/api/code/<int:code_id>/modify', methods=['POST'])
-@async_route
 async def modify_code(code_id: int):
     """修改生成的代码"""
     try:
@@ -1782,7 +1762,6 @@ def get_code_versions(code_id: int):
 
 
 @app.route('/api/knowledge-graph/build', methods=['POST'])
-@async_route
 async def build_knowledge_graph():
     """手动构建知识图谱"""
     try:

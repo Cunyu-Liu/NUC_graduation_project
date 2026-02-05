@@ -11,8 +11,8 @@
     <el-row :gutter="20">
       <el-col :span="8" v-for="card in cards" :key="card.title">
         <el-card class="feature-card" @click="navigateTo(card.path)" shadow="hover">
-          <div class="card-icon" :style="{ background: card.color }">
-            <i :class="card.icon"></i>
+          <div class="card-icon" :style="{ backgroundColor: card.color }">
+            <el-icon :size="36" color="#fff"><component :is="card.icon" /></el-icon>
           </div>
           <h3>{{ card.title }}</h3>
           <p>{{ card.description }}</p>
@@ -26,8 +26,8 @@
       <el-row :gutter="20">
         <el-col :span="6" v-for="stat in stats" :key="stat.title">
           <el-card class="stat-card">
-            <div class="stat-icon" :style="{ background: stat.color }">
-              <i :class="stat.icon"></i>
+            <div class="stat-icon" :style="{ backgroundColor: stat.color }">
+              <el-icon :size="28" color="#fff"><component :is="stat.icon" /></el-icon>
             </div>
             <div class="stat-content">
               <div class="stat-value">{{ stat.value }}</div>
@@ -57,13 +57,20 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStore } from 'vuex'
-import axios from 'axios'
+import {
+  Document, DataAnalysis, Folder, Search, Share,
+  Cpu, DocumentChecked
+} from '@element-plus/icons-vue'
+import api from '@/api'
 
 export default {
   name: 'Home',
+  components: {
+    Document, DataAnalysis, Folder, Search, Share, Cpu, DocumentChecked
+  },
   setup() {
     const router = useRouter()
     const store = useStore()
@@ -72,45 +79,45 @@ export default {
       {
         title: '单篇论文分析',
         description: '上传单篇论文，生成摘要并提取要点',
-        icon: 'el-icon-document',
+        icon: 'Document',
         path: '/analyze',
-        color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        color: '#1890ff'
       },
       {
         title: '多篇论文聚类',
         description: '分析多篇论文，发现研究趋势和主题',
-        icon: 'el-icon-data-analysis',
+        icon: 'DataAnalysis',
         path: '/cluster',
-        color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+        color: '#52c41a'
       },
       {
         title: '文件管理',
         description: '查看和管理已上传的论文文件',
-        icon: 'el-icon-folder',
+        icon: 'Folder',
         path: '/files',
-        color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+        color: '#faad14'
       },
       {
         title: '研究空白挖掘',
         description: '发现论文中的研究机会和未解决问题',
-        icon: 'el-icon-search',
+        icon: 'Search',
         path: '/gaps',
-        color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
+        color: '#722ed1'
       },
       {
         title: '知识图谱',
         description: '可视化论文之间的关系网络',
-        icon: 'el-icon-share',
+        icon: 'Share',
         path: '/knowledge-graph',
-        color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+        color: '#eb2f96'
       }
     ])
 
     const stats = ref([
-      { title: '已上传论文', value: 0, icon: 'el-icon-document', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
-      { title: '分析完成', value: 0, icon: 'el-icon-data-analysis', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
-      { title: '发现空白', value: 0, icon: 'el-icon-search', color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
-      { title: '生成代码', value: 0, icon: 'el-icon-cpu', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }
+      { title: '已上传论文', value: 0, icon: 'Document', color: '#1890ff' },
+      { title: '分析完成', value: 0, icon: 'DocumentChecked', color: '#52c41a' },
+      { title: '发现空白', value: 0, icon: 'Search', color: '#722ed1' },
+      { title: '生成代码', value: 0, icon: 'Cpu', color: '#faad14' }
     ])
 
     const activeStep = ref(0)
@@ -125,9 +132,9 @@ export default {
 
     const fetchStats = async () => {
       try {
-        const response = await axios.get('/api/statistics')
-        if (response.data.success) {
-          const data = response.data.data
+        const response = await api.getStatistics()
+        if (response.success) {
+          const data = response.data
           stats.value[0].value = data.total_papers || 0
           stats.value[1].value = data.completed_analyses || 0
           stats.value[2].value = data.total_gaps || 0
@@ -156,35 +163,38 @@ export default {
 
 <style scoped>
 .home {
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
 .welcome-banner {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #1890ff;
   color: white;
-  padding: 40px;
-  border-radius: 12px;
+  padding: 48px 40px;
+  border-radius: 8px;
   text-align: center;
   margin-bottom: 40px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
 }
 
 .welcome-banner h1 {
-  font-size: 32px;
-  margin-bottom: 10px;
+  font-size: 28px;
+  margin-bottom: 12px;
+  font-weight: 500;
 }
 
 .welcome-banner p {
   font-size: 16px;
-  opacity: 0.9;
+  opacity: 0.85;
+  font-weight: 400;
 }
 
 .section-title {
-  font-size: 24px;
-  color: #303133;
+  font-size: 20px;
+  color: #262626;
   margin-bottom: 20px;
-  font-weight: 600;
+  font-weight: 500;
+  padding-left: 12px;
+  border-left: 4px solid #1890ff;
 }
 
 .feature-card {
@@ -192,38 +202,38 @@ export default {
   cursor: pointer;
   transition: all 0.3s;
   margin-bottom: 20px;
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
+  border: none;
 }
 
 .feature-card:hover {
-  transform: translateY(-8px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .card-icon {
-  width: 80px;
-  height: 80px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 20px;
-  color: white;
-  font-size: 36px;
+  margin: 8px auto 16px;
 }
 
 .feature-card h3 {
-  margin: 15px 0;
-  font-size: 18px;
-  color: #303133;
-  font-weight: 600;
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  color: #262626;
+  font-weight: 500;
 }
 
 .feature-card p {
-  color: #909399;
+  color: #8c8c8c;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
+  margin: 0;
 }
 
 .stats-section {
@@ -235,20 +245,18 @@ export default {
   display: flex;
   align-items: center;
   padding: 20px;
-  border-radius: 12px;
-  overflow: hidden;
+  border-radius: 8px;
+  border: none;
 }
 
 .stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 12px;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  font-size: 28px;
-  margin-right: 15px;
+  margin-right: 16px;
   flex-shrink: 0;
 }
 
@@ -257,21 +265,22 @@ export default {
 }
 
 .stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #303133;
-  margin-bottom: 5px;
+  font-size: 24px;
+  font-weight: 600;
+  color: #262626;
+  margin-bottom: 4px;
+  line-height: 1;
 }
 
 .stat-title {
   font-size: 14px;
-  color: #909399;
+  color: #8c8c8c;
 }
 
 .quick-start {
   background: white;
-  padding: 40px;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  padding: 32px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 </style>
