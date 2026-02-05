@@ -210,7 +210,23 @@ class TopicClustering:
                 n_init=10
             )
         elif self.clustering_method == "dbscan":
-            self.cluster_model = DBSCAN(eps=0.5, min_samples=2)
+            # 为DBSCAN动态调整eps参数
+            # eps应该根据数据分布动态调整
+            n_samples = tfidf_matrix.shape[0]
+            if n_samples <= 3:
+                # 样本太少，使用层次聚类替代
+                print(f"  样本数量较少({n_samples})，使用层次聚类替代")
+                self.cluster_model = AgglomerativeClustering(
+                    n_clusters=max(2, n_samples - 1) if n_samples > 2 else 2
+                )
+                self.clustering_method = "hierarchical"  # 临时切换方法
+            else:
+                # 根据样本数量动态调整eps
+                # 样本越多，eps应该越小（数据点越密集）
+                eps = max(0.3, 0.8 - n_samples * 0.02)
+                min_samples = min(2, n_samples - 1)
+                self.cluster_model = DBSCAN(eps=eps, min_samples=min_samples)
+                print(f"  DBSCAN参数: eps={eps:.2f}, min_samples={min_samples}")
         elif self.clustering_method == "hierarchical":
             self.cluster_model = AgglomerativeClustering(
                 n_clusters=self.n_clusters
@@ -244,10 +260,18 @@ class TopicClustering:
         paper_texts = self.prepare_paper_texts(papers)
         tfidf_matrix = self.vectorizer.transform(paper_texts)
 
-        for cluster_id in np.unique(labels):
-            if cluster_id == -1:  # DBSCAN的噪声点
-                continue
+        unique_labels = np.unique(labels)
 
+        # 处理DBSCAN的噪声点：将噪声点单独分组或分配到最近的簇
+        noise_indices = []
+        if -1 in unique_labels:
+            noise_indices = np.where(labels == -1)[0].tolist()
+            # 从unique_labels中移除-1以便正常处理其他簇
+            unique_labels = unique_labels[unique_labels != -1]
+            print(f"  DBSCAN发现 {len(noise_indices)} 个噪声点，将单独处理")
+
+        # 正常处理聚类簇
+        for cluster_id in unique_labels:
             # 获取该聚类的论文
             cluster_mask = labels == cluster_id
             cluster_papers = [papers[i] for i in range(len(papers)) if cluster_mask[i]]
@@ -259,7 +283,7 @@ class TopicClustering:
             top_features = [self.feature_names[i] for i in top_feature_indices]
 
             # 分析结果
-            cluster_analysis[cluster_id] = {
+            cluster_analysis[int(cluster_id)] = {
                 "paper_count": len(cluster_papers),
                 "papers": [p.filename for p in cluster_papers],
                 "top_keywords": top_features,
@@ -267,6 +291,32 @@ class TopicClustering:
                     cluster_papers, top_n=3
                 )
             }
+
+        # 处理噪声点：如果噪声点数量较多，将它们分组为"其他"类别
+        # 或者分配到最近的簇
+        if noise_indices:
+            noise_papers = [papers[i] for i in noise_indices]
+
+            if len(noise_papers) >= 2:
+                # 如果有2个或更多噪声点，创建一个"其他"簇
+                cluster_analysis[-1] = {
+                    "paper_count": len(noise_papers),
+                    "papers": [p.filename for p in noise_papers],
+                    "top_keywords": ["未分类", "其他"],
+                    "representative_papers": self._get_representative_papers(
+                        noise_papers, top_n=3
+                    )
+                }
+            elif len(noise_papers) == 1 and cluster_analysis:
+                # 如果只有一个噪声点，分配到最近的簇（样本最多的簇）
+                largest_cluster_id = max(
+                    cluster_analysis.keys(),
+                    key=lambda k: cluster_analysis[k]["paper_count"]
+                )
+                cluster_analysis[largest_cluster_id]["papers"].append(
+                    noise_papers[0].filename
+                )
+                cluster_analysis[largest_cluster_id]["paper_count"] += 1
 
         return cluster_analysis
 
@@ -488,13 +538,19 @@ class TopicClustering:
 
         # 训练聚类模型
         labels = self.fit_transform(papers)
-        print(f"聚类完成，共发现 {len(np.unique(labels))} 个主题类别")
 
         # 分析聚类
         cluster_analysis = self.analyze_clusters(papers, labels)
+
+        # 计算有效的聚类数量（不包括噪声点，除非噪声点形成了独立的簇）
+        unique_labels = np.unique(labels)
+        effective_cluster_count = len(cluster_analysis)
+
+        print(f"聚类完成，共发现 {effective_cluster_count} 个主题类别")
         print("\n聚类分析结果:")
         for cluster_id, info in cluster_analysis.items():
-            print(f"\n聚类 {cluster_id} ({info['paper_count']} 篇论文):")
+            cluster_name = "未分类" if cluster_id == -1 else f"聚类 {cluster_id}"
+            print(f"\n{cluster_name} ({info['paper_count']} 篇论文):")
             print(f"  关键词: {', '.join(info['top_keywords'][:5])}")
 
         # 保存可视化
@@ -509,7 +565,7 @@ class TopicClustering:
         return {
             "labels": labels,
             "cluster_analysis": cluster_analysis,
-            "unique_clusters": len(np.unique(labels))
+            "unique_clusters": effective_cluster_count
         }
 
 

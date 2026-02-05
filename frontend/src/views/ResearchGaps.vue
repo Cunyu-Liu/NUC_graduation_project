@@ -118,24 +118,17 @@
 
         <el-table-column label="重要性" width="90" align="center">
           <template #default="{ row }">
-            <el-rate
-              v-model="row.importance_level"
-              disabled
-              show-score
-              :colors="['#F56C6C', '#E6A23C', '#67C23A']"
-              :score-template="row.importance"
-            />
+            <el-tag :type="row.importance === 'high' ? 'danger' : row.importance === 'medium' ? 'warning' : 'info'" size="small">
+              {{ getImportanceLabel(row.importance) }}
+            </el-tag>
           </template>
         </el-table-column>
 
         <el-table-column label="难度" width="90" align="center">
           <template #default="{ row }">
-            <el-rate
-              v-model="row.difficulty_level"
-              disabled
-              show-score
-              :max="3"
-            />
+            <el-tag :type="row.difficulty === 'high' ? 'danger' : row.difficulty === 'medium' ? 'warning' : 'info'" size="small">
+              {{ getDifficultyLabel(row.difficulty) }}
+            </el-tag>
           </template>
         </el-table-column>
 
@@ -203,7 +196,7 @@
     <!-- 详情对话框 -->
     <el-dialog
       v-model="showDetailDialog"
-      :title="`研究空白详情 #${selectedGap.id}`"
+      :title="selectedGap ? `研究空白详情 #${selectedGap.id}` : '研究空白详情'"
       width="70%"
     >
       <div v-if="selectedGap" class="gap-detail">
@@ -215,10 +208,14 @@
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="重要性">
-            {{ selectedGap.importance }}
+            <el-tag :type="selectedGap.importance === 'high' ? 'danger' : selectedGap.importance === 'medium' ? 'warning' : 'info'">
+              {{ getImportanceLabel(selectedGap.importance) }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="难度">
-            {{ selectedGap.difficulty }}
+            <el-tag :type="selectedGap.difficulty === 'high' ? 'danger' : selectedGap.difficulty === 'medium' ? 'warning' : 'info'">
+              {{ getDifficultyLabel(selectedGap.difficulty) }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="getStatusType(selectedGap.status)">
@@ -235,11 +232,11 @@
 
         <!-- 潜在方法 -->
         <h3>潜在解决方法</h3>
-        <p>{{ selectedGap.potential_approach }}</p>
+        <p class="gap-text-content">{{ selectedGap.potential_approach || '暂无' }}</p>
 
         <!-- 预期影响 -->
         <h3>预期影响</h3>
-        <p>{{ selectedGap.expected_impact }}</p>
+        <p class="gap-text-content">{{ selectedGap.expected_impact || '暂无' }}</p>
 
         <!-- 已生成代码 -->
         <div v-if="selectedGap.generated_code_id">
@@ -249,6 +246,82 @@
           </el-button>
         </div>
       </div>
+    </el-dialog>
+
+    <!-- 编辑对话框 -->
+    <el-dialog
+      v-model="showEditDialog"
+      :title="editForm ? `编辑研究空白 #${editForm.id}` : '编辑研究空白'"
+      width="60%"
+    >
+      <el-form :model="editForm" label-width="120px" v-if="editForm">
+        <el-form-item label="类型">
+          <el-select v-model="editForm.gap_type" placeholder="请选择类型">
+            <el-option label="方法论" value="methodological" />
+            <el-option label="理论" value="theoretical" />
+            <el-option label="数据" value="data" />
+            <el-option label="应用" value="application" />
+            <el-option label="评估" value="evaluation" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="描述">
+          <el-input
+            type="textarea"
+            :rows="4"
+            v-model="editForm.description"
+            placeholder="请详细描述研究空白"
+          />
+        </el-form-item>
+
+        <el-form-item label="重要性">
+          <el-select v-model="editForm.importance" placeholder="请选择重要性">
+            <el-option label="高" value="high" />
+            <el-option label="中" value="medium" />
+            <el-option label="低" value="low" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="难度">
+          <el-select v-model="editForm.difficulty" placeholder="请选择难度">
+            <el-option label="低" value="low" />
+            <el-option label="中" value="medium" />
+            <el-option label="高" value="high" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="潜在解决方法">
+          <el-input
+            type="textarea"
+            :rows="4"
+            v-model="editForm.potential_approach"
+            placeholder="请详细描述可能的解决方案、实现路径等"
+          />
+        </el-form-item>
+
+        <el-form-item label="预期影响">
+          <el-input
+            type="textarea"
+            :rows="4"
+            v-model="editForm.expected_impact"
+            placeholder="请描述实施该方案的预期学术贡献和实际影响"
+          />
+        </el-form-item>
+
+        <el-form-item label="状态">
+          <el-select v-model="editForm.status" placeholder="请选择状态">
+            <el-option label="已识别" value="identified" />
+            <el-option label="生成中" value="code_generating" />
+            <el-option label="已实现" value="implemented" />
+            <el-option label="已验证" value="verified" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="showEditDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveEdit" :loading="saving">保存</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -263,6 +336,9 @@ const loading = ref(false)
 const gaps = ref([])
 const selectedGap = ref({})
 const showDetailDialog = ref(false)
+const showEditDialog = ref(false)
+const editForm = ref(null)
+const saving = ref(false)
 
 // 筛选器
 const filters = ref({
@@ -408,6 +484,24 @@ const getStatusType = (status) => {
   return types[status] || 'info'
 }
 
+const getImportanceLabel = (importance) => {
+  const labels = {
+    'high': '高',
+    'medium': '中',
+    'low': '低'
+  }
+  return labels[importance] || importance
+}
+
+const getDifficultyLabel = (difficulty) => {
+  const labels = {
+    'high': '高',
+    'medium': '中',
+    'low': '低'
+  }
+  return labels[difficulty] || difficulty
+}
+
 const getRowClassName = ({ row }) => {
   if (row.importance === 'high') {
     return 'high-priority-row'
@@ -434,7 +528,48 @@ const generateCode = async (gap) => {
 }
 
 const editGap = (gap) => {
-  ElMessage.info('编辑功能开发中')
+  // 创建编辑表单的副本
+  editForm.value = {
+    id: gap.id,
+    gap_type: gap.gap_type || '',
+    description: gap.description || '',
+    importance: gap.importance || 'medium',
+    difficulty: gap.difficulty || 'medium',
+    potential_approach: gap.potential_approach || '',
+    expected_impact: gap.expected_impact || '',
+    status: gap.status || 'identified'
+  }
+  showEditDialog.value = true
+}
+
+const saveEdit = async () => {
+  try {
+    saving.value = true
+
+    const response = await api.updateGap(editForm.value.id, {
+      gap_type: editForm.value.gap_type,
+      description: editForm.value.description,
+      importance: editForm.value.importance,
+      difficulty: editForm.value.difficulty,
+      potential_approach: editForm.value.potential_approach,
+      expected_impact: editForm.value.expected_impact,
+      status: editForm.value.status
+    })
+
+    if (response.success) {
+      ElMessage.success('保存成功')
+      showEditDialog.value = false
+      // 刷新列表
+      await loadGaps()
+    } else {
+      ElMessage.error(response.error || '保存失败')
+    }
+  } catch (error) {
+    console.error('保存失败:', error)
+    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
+  } finally {
+    saving.value = false
+  }
 }
 
 const viewGeneratedCode = (codeId) => {
@@ -680,5 +815,18 @@ onMounted(() => {
   line-height: 1.6;
   color: #606266;
   margin-bottom: 16px;
+}
+
+.gap-text-content {
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  line-height: 1.8;
+  color: #606266;
+  margin-bottom: 16px;
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 </style>

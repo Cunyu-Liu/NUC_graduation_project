@@ -379,7 +379,10 @@ class DatabaseManager:
     def get_all_gaps(self, limit: int = 100, skip: int = 0, importance: str = None) -> List[Dict[str, Any]]:
         """获取所有研究空白，支持筛选"""
         with self.get_session() as session:
-            query = session.query(ResearchGap)
+            from sqlalchemy.orm import joinedload
+
+            # 预加载generated_code关系
+            query = session.query(ResearchGap).options(joinedload(ResearchGap.generated_code))
 
             # 可选筛选条件
             if importance:
@@ -391,7 +394,12 @@ class DatabaseManager:
     def get_research_gap(self, gap_id: int) -> Optional[Dict[str, Any]]:
         """获取研究空白详情"""
         with self.get_session() as session:
-            gap = session.query(ResearchGap).filter(ResearchGap.id == gap_id).first()
+            from sqlalchemy.orm import joinedload
+
+            # 预加载generated_code关系
+            gap = session.query(ResearchGap).options(
+                joinedload(ResearchGap.generated_code)
+            ).filter(ResearchGap.id == gap_id).first()
             return gap.to_dict() if gap else None
 
     def update_research_gap(self, gap_id: int, gap_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -319,6 +319,17 @@ const viewFileDetail = (file) => {
 const analyzeFile = (paper) => {
   if (paper) {
     router.push({ path: '/analyze', query: { paperId: paper.id } })
+
+    // 添加路由守卫，从分析页面返回时刷新列表
+    const unwatch = router.afterEach((to, from) => {
+      if (from.path === '/analyze' && to.path === '/files') {
+        // 延迟刷新，确保数据库已更新
+        setTimeout(() => {
+          store.dispatch('fetchFiles')
+        }, 500)
+        unwatch()
+      }
+    })
   }
 }
 
@@ -338,17 +349,21 @@ const saveEdit = async () => {
   try {
     saving.value = true
 
-    const authors = editForm.value.authorsStr
-      .split(',')
-      .map(a => a.trim())
-      .filter(a => a)
-
-    const response = await api.updatePaper(editForm.value.id, {
+    // 构建更新数据，只包含 Paper 模型支持的字段
+    const updateData = {
       title: editForm.value.title,
       year: editForm.value.year,
-      venue: editForm.value.venue,
-      authors: authors
+      venue: editForm.value.venue
+    }
+
+    // 移除undefined或null的值
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined || updateData[key] === null) {
+        delete updateData[key]
+      }
     })
+
+    const response = await api.updatePaper(editForm.value.id, updateData)
 
     if (response.success) {
       ElMessage.success('保存成功')

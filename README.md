@@ -145,6 +145,8 @@ pkill -f "python app.py"
 # 启动后端（终端1）
 python app.py
 
+conda activate nuc
+
 # 启动前端（终端2）
 cd frontend
 npm run serve

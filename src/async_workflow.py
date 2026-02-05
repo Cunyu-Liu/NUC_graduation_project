@@ -156,14 +156,21 @@ class AsyncWorkflowEngine:
             # 步骤4: 生成洞察
             if 'gaps' in tasks:
                 print(f"\n[4/6] 生成研究洞察...")
-                gaps = await self._generate_insights_async(paper_id)
-                result['gaps_count'] = len(gaps)
+                # 使用analysis_id而不是paper_id
+                analysis_id = analysis_result.get('analysis_id')
+                if analysis_id:
+                    gaps = await self._generate_insights_async(analysis_id)
+                    result['gaps_count'] = len(gaps)
+                else:
+                    print("  ⚠ 无法生成研究洞察：缺少analysis_id")
+                    gaps = []
+                    result['gaps_count'] = 0
 
                 # 步骤5: 自动生成代码
                 if auto_generate_code and gaps:
                     print(f"\n[5/6] 自动生成代码...")
                     code_results = await self._generate_code_for_gaps_async(
-                        paper_id, gaps[:3]  # 生成前3个空白的代码
+                        gaps[:3]  # 生成前3个空白的代码
                     )
                     result['code_generated'] = len(code_results)
 
@@ -372,7 +379,7 @@ class AsyncWorkflowEngine:
         pass  # 简化实现
 
     async def _generate_insights_async(self, analysis_id: int) -> List[Dict[str, Any]]:
-        """异步生成研究洞察"""
+        """异步生成研究洞察 - 使用LLM深度分析提取完整研究空白信息"""
         analysis_dict = self.db.get_analysis(analysis_id)
         if not analysis_dict:
             return []
@@ -381,24 +388,169 @@ class AsyncWorkflowEngine:
         keypoints = analysis_dict.get('keypoints') or {}
         gaps_data = keypoints.get('research_gaps', [])
 
+        if not gaps_data:
+            print("  ⚠ 未找到研究空白数据")
+            return []
+
+        print(f"  - 从关键要点中提取到 {len(gaps_data)} 个研究空白")
+
+        # 使用LLM为每个研究空白生成更详细的信息
         gaps = []
-        for gap_desc in gaps_data:
-            # create_research_gap返回字典
+        for i, gap_desc in enumerate(gaps_data[:5], 1):  # 限制最多5个
+            print(f"    处理研究空白 {i}/{min(len(gaps_data), 5)}...")
+
+            # 使用LLM生成潜在解决方法和预期影响
+            gap_detail = await self._enrich_gap_with_llm(
+                gap_desc,
+                analysis_dict.get('summary_text', ''),
+                keypoints
+            )
+
+            # 创建研究空白记录
             gap_dict = self.db.create_research_gap({
                 'analysis_id': analysis_id,
-                'gap_type': 'methodological',  # 简化
+                'gap_type': gap_detail.get('gap_type', 'methodological'),
                 'description': gap_desc,
-                'importance': 'medium',
-                'difficulty': 'medium',
+                'importance': gap_detail.get('importance', 'medium'),
+                'difficulty': gap_detail.get('difficulty', 'medium'),
+                'potential_approach': gap_detail.get('potential_approach', ''),
+                'expected_impact': gap_detail.get('expected_impact', ''),
                 'status': 'identified'
             })
-            gaps.append(gap_dict)
+
+            if gap_dict:
+                gaps.append(gap_dict)
+                print(f"      ✓ 已创建研究空白 #{gap_dict['id']}")
 
         return gaps
 
+    async def _enrich_gap_with_llm(
+        self,
+        gap_description: str,
+        paper_summary: str,
+        keypoints: Dict
+    ) -> Dict[str, str]:
+        """使用LLM丰富研究空白信息"""
+        if not self.llm or not LANGCHAIN_AVAILABLE:
+            return {
+                'gap_type': 'methodological',
+                'importance': 'medium',
+                'difficulty': 'medium',
+                'potential_approach': '',
+                'expected_impact': ''
+            }
+
+        prompt = f"""# 研究空白深度分析任务
+
+## 研究空白描述
+{gap_description}
+
+## 论文摘要
+{paper_summary[:1000]}
+
+## 论文关键信息
+- 创新点: {', '.join(keypoints.get('innovations', [])[:3])}
+- 方法: {', '.join(keypoints.get('methods', [])[:3])}
+- 局限性: {', '.join(keypoints.get('limitations', [])[:3])}
+
+## 分析要求
+请为这个研究空白提供以下信息（以JSON格式输出）:
+
+1. **gap_type**: 空白类型，从以下选择
+   - methodological (方法论)
+   - theoretical (理论)
+   - data (数据)
+   - application (应用)
+   - evaluation (评估)
+
+2. **importance**: 重要性 (high/medium/low)
+
+3. **difficulty**: 解决难度 (high/medium/low)
+
+4. **potential_approach**: 潜在解决方法（200-300字详细描述）
+   - 具体的技术路线
+   - 可能的算法改进
+   - 需要的资源
+
+5. **expected_impact**: 预期影响（200-300字详细描述）
+   - 学术贡献
+   - 实际应用价值
+   - 对领域发展的推动作用
+
+## 输出格式
+请只输出JSON，不要有任何其他文字:
+```json
+{{
+  "gap_type": "methodological",
+  "importance": "high",
+  "difficulty": "medium",
+  "potential_approach": "详细描述...",
+  "expected_impact": "详细描述..."
+}}
+```
+"""
+
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                self.llm.invoke,
+                [HumanMessage(content=prompt)]
+            )
+
+            # 解析JSON响应
+            result = self._parse_gap_enrichment(response.content)
+            return result
+
+        except Exception as e:
+            print(f"    LLM丰富研究空白失败: {e}")
+            return {
+                'gap_type': 'methodological',
+                'importance': 'medium',
+                'difficulty': 'medium',
+                'potential_approach': '',
+                'expected_impact': ''
+            }
+
+    def _parse_gap_enrichment(self, response: str) -> Dict[str, str]:
+        """解析LLM返回的研究空白丰富信息"""
+        import json
+
+        try:
+            # 尝试从markdown代码块中提取JSON
+            if "```json" in response:
+                start = response.find("```json") + 7
+                end = response.find("```", start)
+                json_str = response[start:end].strip()
+            elif "```" in response:
+                start = response.find("```") + 3
+                end = response.find("```", start)
+                json_str = response[start:end].strip()
+            else:
+                json_str = response.strip()
+
+            data = json.loads(json_str)
+
+            return {
+                'gap_type': data.get('gap_type', 'methodological'),
+                'importance': data.get('importance', 'medium'),
+                'difficulty': data.get('difficulty', 'medium'),
+                'potential_approach': data.get('potential_approach', ''),
+                'expected_impact': data.get('expected_impact', '')
+            }
+
+        except Exception as e:
+            print(f"    解析LLM响应失败: {e}")
+            return {
+                'gap_type': 'methodological',
+                'importance': 'medium',
+                'difficulty': 'medium',
+                'potential_approach': '',
+                'expected_impact': ''
+            }
+
     async def _generate_code_for_gaps_async(
         self,
-        paper_id: int,
         gaps: List,
         max_concurrent: int = 3
     ) -> List[Dict[str, Any]]:

@@ -182,13 +182,17 @@ class CodeGenerator:
 
     def _build_code_generation_prompt(
         self,
-        research_gap: ResearchGap,
+        research_gap,
         strategy: str,
         language: str,
         framework: str,
         user_prompt: str = None
     ) -> str:
-        """构建代码生成提示词"""
+        """构建代码生成提示词
+        
+        Args:
+            research_gap: 研究空白对象或字典
+        """
 
         # 获取策略信息
         strategy_info = CodeGenerationStrategy.STRATEGIES.get(
@@ -196,20 +200,37 @@ class CodeGenerator:
             CodeGenerationStrategy.STRATEGIES["method_improvement"]
         )
 
+        # 处理字典类型输入
+        if isinstance(research_gap, dict):
+            gap_type = research_gap.get('gap_type', 'methodological')
+            description = research_gap.get('description', '')
+            importance = research_gap.get('importance', 'medium')
+            difficulty = research_gap.get('difficulty', 'medium')
+            potential_approach = research_gap.get('potential_approach', '')
+            expected_impact = research_gap.get('expected_impact', '')
+        else:
+            # 对象类型访问
+            gap_type = getattr(research_gap, 'gap_type', 'methodological')
+            description = getattr(research_gap, 'description', '')
+            importance = getattr(research_gap, 'importance', 'medium')
+            difficulty = getattr(research_gap, 'difficulty', 'medium')
+            potential_approach = getattr(research_gap, 'potential_approach', '')
+            expected_impact = getattr(research_gap, 'expected_impact', '')
+
         # 基础提示词
         prompt = f"""# 代码生成任务
 
 ## 研究空白
-**类型**: {research_gap.gap_type}
-**描述**: {research_gap.description}
-**重要性**: {research_gap.importance}
-**难度**: {research_gap.difficulty}
+**类型**: {gap_type}
+**描述**: {description}
+**重要性**: {importance}
+**难度**: {difficulty}
 
 ## 潜在解决方法
-{research_gap.potential_approach}
+{potential_approach}
 
 ## 预期影响
-{research_gap.expected_impact}
+{expected_impact}
 
 ## 代码生成策略
 **策略**: {strategy_info['name']}
@@ -381,8 +402,24 @@ class CodeGenerator:
 
         return '\n'.join([f'{dep}>=latest' for dep in dependencies])
 
-    def _generate_docstring(self, research_gap: ResearchGap, strategy: str) -> str:
-        """生成代码文档字符串"""
+    def _generate_docstring(self, research_gap, strategy: str) -> str:
+        """生成代码文档字符串
+        
+        Args:
+            research_gap: 研究空白对象或字典
+        """
+        # 处理字典类型输入
+        if isinstance(research_gap, dict):
+            gap_type = research_gap.get('gap_type', 'methodological')
+            description = research_gap.get('description', '')
+            potential_approach = research_gap.get('potential_approach', '')
+            expected_impact = research_gap.get('expected_impact', '')
+        else:
+            gap_type = getattr(research_gap, 'gap_type', 'methodological')
+            description = getattr(research_gap, 'description', '')
+            potential_approach = getattr(research_gap, 'potential_approach', '')
+            expected_impact = getattr(research_gap, 'expected_impact', '')
+
         return f"""
 # 自动生成的代码 - v4.0院士级系统
 
@@ -392,14 +429,14 @@ class CodeGenerator:
 - 语言: python
 
 ## 研究空白
-- 类型: {research_gap.gap_type}
-- 描述: {research_gap.description}
+- 类型: {gap_type}
+- 描述: {description}
 
 ## 潜在解决方法
-{research_gap.potential_approach}
+{potential_approach}
 
 ## 预期影响
-{research_gap.expected_impact}
+{expected_impact}
 
 ## 使用说明
 此代码由AI自动生成，建议：
@@ -453,7 +490,7 @@ class CodeGenerator:
         code_id: int,
         user_prompt: str,
         db_manager: DatabaseManager = None
-    ) -> Optional[GeneratedCode]:
+    ) -> Optional[Dict[str, Any]]:
         """
         根据用户提示修改代码
 
@@ -463,7 +500,7 @@ class CodeGenerator:
             db_manager: 数据库管理器
 
         Returns:
-            修改后的代码对象
+            修改后的代码字典
         """
         db = db_manager or self.db
 
@@ -473,11 +510,8 @@ class CodeGenerator:
             return None
 
         # 获取关联的研究空白
-        gap = db.db_manager.query(ResearchGap).filter(
-            ResearchGap.id == code_record.gap_id
-        ).first()
-
-        if not gap:
+        gap_id = code_record.get('gap_id')
+        if not gap_id:
             return None
 
         # 构建修改提示
@@ -485,7 +519,7 @@ class CodeGenerator:
 
 ## 原始代码
 ```python
-{code_record.code}
+{code_record.get('code', '')}
 ```
 
 ## 用户修改要求
@@ -517,21 +551,15 @@ class CodeGenerator:
 
         new_code = self._extract_code_from_markdown(response.content)
 
-        # 保存新版本
-        version_data = {
-            'parent_code_id': code_id,
-            'version_number': code_record.current_version + 1,
-            'code': new_code,
-            'change_description': user_prompt,
-            'prompt': user_prompt,
-            'author': 'User'
-        }
+        # 获取当前版本和提示历史
+        current_version = code_record.get('current_version', 1)
+        user_prompts = code_record.get('user_prompts', []) or []
 
         # 更新主代码记录
         update_data = {
             'code': new_code,
-            'user_prompts': code_record.user_prompts + [user_prompt],
-            'current_version': code_record.current_version + 1,
+            'user_prompts': user_prompts + [user_prompt],
+            'current_version': current_version + 1,
             'updated_at': datetime.utcnow()
         }
 
@@ -603,7 +631,7 @@ class CodeGenerator:
 async def generate_code_for_gap(
     gap_id: int,
     db_manager: DatabaseManager = None
-) -> Optional[GeneratedCode]:
+) -> Optional[Dict[str, Any]]:
     """
     便捷函数：为研究空白生成代码
 
@@ -612,16 +640,19 @@ async def generate_code_for_gap(
         db_manager: 数据库管理器
 
     Returns:
-        生成的代码对象
+        生成的代码字典
     """
     db = db_manager or DatabaseManager()
 
-    gap = db.db_manager.query(ResearchGap).filter(
-        ResearchGap.id == gap_id
-    ).first()
+    # 使用get_research_gap获取研究空白详情
+    gap_dict = db.get_research_gap(gap_id)
 
-    if not gap:
+    if not gap_dict:
         return None
+
+    # 将字典转换为SimpleNamespace对象以兼容现有代码
+    from types import SimpleNamespace
+    gap = SimpleNamespace(**gap_dict)
 
     generator = CodeGenerator(db_manager=db)
     code_data = await generator.generate_code_async(gap)

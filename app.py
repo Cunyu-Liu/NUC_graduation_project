@@ -198,20 +198,21 @@ def emit_progress(progress: int, message: str, step: str = ""):
 
 
 def async_route(f):
-    """异步路由装饰器 - 使用asyncio.run()确保正确的循环管理"""
+    """异步路由装饰器 - Flask 3.x+ 原生支持协程"""
+    # Flask 3.x+ 原生支持异步视图函数，此装饰器保留用于兼容性
+    # 并添加统一的错误处理
     @wraps(f)
-    def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs):
         try:
-            # asyncio.run() 会创建新的事件循环并正确管理生命周期
-            # 这比手动创建循环更安全，特别是在macOS上
-            result = asyncio.run(f(*args, **kwargs))
-            return result
+            return await f(*args, **kwargs)
         except Exception as e:
-            # 记录异常以便调试
             import traceback
             print(f"[ERROR] async_route error: {e}")
             traceback.print_exc()
-            raise
+            return jsonify(create_response(
+                success=False, 
+                error=f"服务器内部错误: {str(e)}"
+            )), 500
     return wrapper
 
 
@@ -595,7 +596,7 @@ def get_papers():
     """获取论文列表（支持搜索和过滤）"""
     try:
         skip = int(request.args.get('skip', 0))
-        limit = int(request.args.get('limit', 20))
+        limit = int(request.args.get('limit', 100))  # 增加默认限制
         search = request.args.get('search', '')
         year_from = request.args.get('year_from', type=int)
         year_to = request.args.get('year_to', type=int)
@@ -610,12 +611,25 @@ def get_papers():
             venue=venue
         )
 
+        # 为每篇论文添加analyzed字段
+        for paper in papers:
+            paper_id = paper.get('id')
+            # 检查是否有分析记录
+            analyses = db.get_analyses_by_paper(paper_id)
+            paper['analyzed'] = len(analyses) > 0
+            paper['analysis_count'] = len(analyses)
+            if analyses:
+                paper['last_analysis_at'] = analyses[0].get('created_at')
+
         return jsonify(create_response(
             success=True,
             data=papers,
             message=f"获取到 {len(papers)} 篇论文"
         ))
     except Exception as e:
+        import traceback
+        print(f"[ERROR] 获取论文列表失败: {e}")
+        print(traceback.format_exc())
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
@@ -871,7 +885,7 @@ def upload_file():
 
 @app.route('/api/upload/batch', methods=['POST'])
 def batch_upload_files():
-    """批量上传PDF文件（异步任务队列）"""
+    """批量上传PDF文件（同步处理确保所有文件都被保存）"""
     try:
         if 'files' not in request.files:
             return jsonify(create_response(success=False, error="没有文件")), 400
@@ -885,107 +899,106 @@ def batch_upload_files():
         if len(files) > 20:
             return jsonify(create_response(success=False, error="批量上传最多支持20个文件")), 400
 
-        # 创建异步任务
-        task_data = {
-            'task_type': 'batch_upload',
-            'params': {'file_count': len(files)},
-            'status': 'pending',
-            'total_steps': len(files)
-        }
+        print(f"[INFO] 开始批量上传 {len(files)} 个文件")
 
-        task = db.create_task(task_data)
+        # 同步处理所有文件，确保都被正确处理
+        results = {'success': [], 'failed': []}
 
-        # 启动后台任务处理
-        import threading
-        def process_batch_upload(task_id, files):
-            """后台处理批量上传"""
+        for i, file in enumerate(files):
             try:
-                results = {'success': [], 'failed': []}
+                print(f"[INFO] 处理文件 {i+1}/{len(files)}: {file.filename}")
 
-                for i, file in enumerate(files):
-                    try:
-                        # 保存文件
-                        import uuid
-                        original_filename = file.filename
-                        unique_id = str(uuid.uuid4())[:8]
-                        file_ext = Path(original_filename).suffix or '.pdf'
-                        safe_basename = secure_filename(Path(original_filename).stem) or 'paper'
-                        filename = f"{unique_id}_{safe_basename}{file_ext}"
-                        filepath = Path(app.config['UPLOAD_FOLDER']) / filename
-                        file.save(str(filepath))
+                # 验证文件
+                if file.filename == '':
+                    results['failed'].append({
+                        'filename': f'文件_{i+1}',
+                        'error': '文件名为空'
+                    })
+                    continue
 
-                        # 计算文件哈希
-                        file_hash = calculate_file_hash(str(filepath))
+                if not allowed_file(file.filename):
+                    results['failed'].append({
+                        'filename': file.filename,
+                        'error': '仅支持PDF文件'
+                    })
+                    continue
 
-                        # 解析PDF
-                        from src.pdf_parser_enhanced import EnhancedPDFParser
-                        parser = EnhancedPDFParser()
-                        paper = parser.parse_pdf(str(filepath))
+                # 保存文件
+                import uuid
+                original_filename = file.filename
+                unique_id = str(uuid.uuid4())[:8]
+                file_ext = Path(original_filename).suffix or '.pdf'
+                safe_basename = secure_filename(Path(original_filename).stem) or 'paper'
+                filename = f"{unique_id}_{safe_basename}{file_ext}"
+                filepath = Path(app.config['UPLOAD_FOLDER']) / filename
+                file.save(str(filepath))
 
-                        # 保存到数据库
-                        paper_data = {
-                            'title': paper.metadata.title,
-                            'abstract': paper.metadata.abstract,
-                            'pdf_path': filename,
-                            'pdf_hash': file_hash,
-                            'year': paper.metadata.year,
-                            'venue': paper.metadata.publication_venue,
-                            'doi': paper.metadata.doi,
-                            'page_count': paper.page_count,
-                            'language': paper.language,
-                            'meta_data': {
-                                'authors': paper.metadata.authors,
-                                'keywords': paper.metadata.keywords,
-                                'sections_count': len(paper.metadata.sections),
-                                'references_count': len(paper.metadata.references)
-                            },
-                            'authors': [{'name': name} for name in paper.metadata.authors],
-                            'keywords': paper.metadata.keywords
-                        }
+                # 计算文件哈希
+                file_hash = calculate_file_hash(str(filepath))
 
-                        paper_record = db.create_paper(paper_data)
-                        results['success'].append({
-                            'filename': original_filename,
-                            'paper_id': paper_record['id']
-                        })
+                # 解析PDF
+                from src.pdf_parser_enhanced import EnhancedPDFParser
+                parser = EnhancedPDFParser()
+                paper = parser.parse_pdf(str(filepath))
 
-                        # 更新任务进度
-                        db.update_task(task_id, {
-                            'progress': (i + 1) / len(files) * 100,
-                            'current_step': f'处理中: {original_filename}'
-                        })
+                # 保存到数据库
+                paper_data = {
+                    'title': paper.metadata.title,
+                    'abstract': paper.metadata.abstract,
+                    'pdf_path': filename,
+                    'pdf_hash': file_hash,
+                    'year': paper.metadata.year,
+                    'venue': paper.metadata.publication_venue,
+                    'doi': paper.metadata.doi,
+                    'page_count': paper.page_count,
+                    'language': paper.language,
+                    'meta_data': {
+                        'authors': paper.metadata.authors,
+                        'keywords': paper.metadata.keywords,
+                        'sections_count': len(paper.metadata.sections),
+                        'references_count': len(paper.metadata.references)
+                    },
+                    'authors': [{'name': name} for name in paper.metadata.authors],
+                    'keywords': paper.metadata.keywords
+                }
 
-                    except Exception as e:
-                        results['failed'].append({
-                            'filename': file.filename,
-                            'error': str(e)
-                        })
-                        print(f"[ERROR] 处理文件失败 {file.filename}: {e}")
-
-                # 任务完成
-                db.update_task(task_id, {
-                    'status': 'completed',
-                    'progress': 100,
-                    'result': results,
-                    'current_step': f'完成: 成功 {len(results["success"])} 个, 失败 {len(results["failed"])} 个'
+                paper_record = db.create_paper(paper_data)
+                results['success'].append({
+                    'filename': original_filename,
+                    'paper_id': paper_record['id'],
+                    'title': paper.metadata.title
                 })
+
+                print(f"  ✓ 成功: {paper.metadata.title[:50]}...")
 
             except Exception as e:
-                db.update_task(task_id, {
-                    'status': 'failed',
-                    'error': str(e)
+                import traceback
+                error_detail = str(e)
+                print(f"[ERROR] 处理文件失败 {file.filename}: {error_detail}")
+                print(f"[ERROR] Traceback: {traceback.format_exc()}")
+                results['failed'].append({
+                    'filename': file.filename,
+                    'error': error_detail
                 })
 
-        # 启动后台线程
-        thread = threading.Thread(target=process_batch_upload, args=(task.id, files))
-        thread.daemon = True
-        thread.start()
+        # 返回处理结果
+        total_processed = len(results['success']) + len(results['failed'])
+        success_count = len(results['success'])
 
-        return jsonify(create_response(
-            success=True,
-            data={'task_id': task.id, 'total_files': len(files)},
-            message=f"批量上传任务已创建，共 {len(files)} 个文件"
-        ))
+        print(f"[INFO] 批量上传完成: 成功 {success_count}/{total_processed}")
+
+        if success_count > 0:
+            return jsonify(create_response(
+                success=True,
+                data=results,
+                message=f"批量上传完成: 成功 {success_count} 个, 失败 {len(results['failed'])} 个"
+            ))
+        else:
+            return jsonify(create_response(
+                success=False,
+                error=f"所有文件上传失败: {results['failed'][0]['error'] if results['failed'] else '未知错误'}",
+                data=results
+            )), 500
 
     except Exception as e:
         import traceback
@@ -1378,6 +1391,162 @@ def cluster_papers():
 
 
 # ============================================================================
+# 聚类结果存储和导出
+# ============================================================================
+
+# 内存中存储聚类结果（生产环境应使用数据库）
+_cluster_results = {}
+_cluster_images = {}
+
+@app.route('/api/cluster/save', methods=['POST'])
+def save_cluster_result():
+    """保存聚类结果"""
+    try:
+        data = request.get_json()
+        result_id = data.get('result_id')
+        result_data = data.get('data')
+
+        if not result_id or not result_data:
+            return jsonify(create_response(success=False, error="缺少必要参数")), 400
+
+        _cluster_results[result_id] = {
+            'data': result_data,
+            'created_at': datetime.now().isoformat()
+        }
+
+        return jsonify(create_response(
+            success=True,
+            message="聚类结果已保存"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/cluster/<result_id>', methods=['GET'])
+def get_cluster_result(result_id: str):
+    """获取聚类结果"""
+    try:
+        if result_id not in _cluster_results:
+            return jsonify(create_response(success=False, error="聚类结果不存在")), 404
+
+        return jsonify(create_response(
+            success=True,
+            data=_cluster_results[result_id]
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/cluster/<result_id>/export', methods=['GET'])
+def export_cluster_result(result_id: str):
+    """导出聚类结果为JSON文件"""
+    try:
+        if result_id not in _cluster_results:
+            return jsonify(create_response(success=False, error="聚类结果不存在")), 404
+
+        result = _cluster_results[result_id]
+
+        # 创建JSON响应
+        response_data = result['data']
+
+        # 生成导出文件
+        from flask import Response
+        import json
+
+        json_str = json.dumps(response_data, ensure_ascii=False, indent=2)
+
+        return Response(
+            json_str,
+            mimetype='application/json',
+            headers={
+                'Content-Disposition': f'attachment; filename=cluster_result_{result_id}.json'
+            }
+        )
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/cluster/export-report', methods=['POST'])
+def export_cluster_report():
+    """导出聚类报告为文本文件"""
+    try:
+        data = request.get_json()
+        cluster_data = data.get('cluster_data')
+
+        if not cluster_data:
+            return jsonify(create_response(success=False, error="缺少聚类数据")), 400
+
+        # 生成报告内容
+        report_lines = [
+            "=" * 80,
+            "论文主题聚类分析报告",
+            "=" * 80,
+            "",
+            f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"聚类数量: {cluster_data.get('clusterCount', 0)}",
+            f"分析论文数: {len(cluster_data.get('papers', []))}",
+            "",
+            "=" * 80,
+            "各聚类详细信息",
+            "=" * 80,
+            ""
+        ]
+
+        cluster_analysis = cluster_data.get('clusterAnalysis', {})
+        for cluster_id, info in cluster_analysis.items():
+            report_lines.extend([
+                f"\n聚类 {cluster_id}",
+                "-" * 80,
+                f"论文数量: {info.get('paper_count', 0)}",
+                f"核心关键词: {', '.join(info.get('top_keywords', [])[:10])}",
+                "",
+                "包含论文:",
+            ])
+
+            for paper_name in info.get('papers', []):
+                report_lines.append(f"  - {paper_name}")
+
+            report_lines.extend([
+                "",
+                "代表性论文:",
+            ])
+
+            for rep in info.get('representative_papers', []):
+                title = rep.get('title', '无标题')
+                abstract = rep.get('abstract', '无摘要')
+                report_lines.extend([
+                    f"  标题: {title}",
+                    f"  摘要: {abstract[:200]}..." if len(abstract) > 200 else f"  摘要: {abstract}",
+                    ""
+                ])
+
+        report_lines.extend([
+            "",
+            "=" * 80,
+            "报告结束",
+            "=" * 80
+        ])
+
+        report_content = "\n".join(report_lines)
+
+        # 创建文本响应
+        from flask import Response
+        return Response(
+            report_content,
+            mimetype='text/plain; charset=utf-8',
+            headers={
+                'Content-Disposition': f'attachment; filename=cluster_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+            }
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] 导出聚类报告失败: {e}")
+        print(traceback.format_exc())
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+# ============================================================================
 # 代码生成
 # ============================================================================
 
@@ -1390,14 +1559,15 @@ async def generate_gap_code(gap_id: int):
         strategy = data.get('strategy', 'method_improvement')
         user_prompt = data.get('user_prompt')
 
-        # 获取研究空白
-        from src.database import ResearchGap
-        gap = db.db_manager.query(ResearchGap).filter(
-            ResearchGap.id == gap_id
-        ).first()
+        # 获取研究空白 - 使用正确的方法
+        gap_dict = db.get_research_gap(gap_id)
 
-        if not gap:
+        if not gap_dict:
             return jsonify(create_response(success=False, error="研究空白不存在")), 404
+
+        # 转换为SimpleNamespace对象以便代码生成器使用
+        from types import SimpleNamespace
+        gap = SimpleNamespace(**gap_dict)
 
         emit_progress(20, "开始生成代码", "生成中")
 
@@ -1412,6 +1582,9 @@ async def generate_gap_code(gap_id: int):
         code_data['gap_id'] = gap_id
         code_record = db.create_generated_code(code_data)
 
+        # 更新研究空白状态
+        db.update_research_gap(gap_id, {'status': 'code_generated'})
+
         emit_progress(100, "代码生成完成", "完成")
 
         return jsonify(create_response(
@@ -1421,6 +1594,9 @@ async def generate_gap_code(gap_id: int):
         ))
 
     except Exception as e:
+        import traceback
+        print(f"[ERROR] 代码生成失败: {e}")
+        print(traceback.format_exc())
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
@@ -1546,6 +1722,47 @@ def get_gap_detail(gap_id: int):
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
+@app.route('/api/gaps/<int:gap_id>', methods=['PUT'])
+def update_gap_detail(gap_id: int):
+    """更新研究空白详情"""
+    try:
+        # 检查Content-Type
+        if not request.is_json:
+            return jsonify(create_response(success=False, error="Content-Type必须是application/json")), 400
+
+        data = request.get_json()
+        if not data:
+            return jsonify(create_response(success=False, error="请求体不能为空")), 400
+
+        # 允许更新的字段
+        allowed_fields = {
+            'gap_type', 'description', 'importance', 'difficulty',
+            'potential_approach', 'expected_impact', 'status'
+        }
+
+        # 过滤只允许的字段
+        update_data = {k: v for k, v in data.items() if k in allowed_fields}
+
+        if not update_data:
+            return jsonify(create_response(success=False, error="没有可更新的字段")), 400
+
+        # 更新研究空白
+        updated_gap = db.update_research_gap(gap_id, update_data)
+
+        if not updated_gap:
+            return jsonify(create_response(success=False, error="研究空白不存在")), 404
+
+        return jsonify(create_response(
+            success=True,
+            data=updated_gap,
+            message="更新成功"
+        )), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
 @app.route('/api/code/<int:code_id>/versions', methods=['GET'])
 def get_code_versions(code_id: int):
     """获取代码版本历史"""
@@ -1565,20 +1782,34 @@ def get_code_versions(code_id: int):
 
 
 @app.route('/api/knowledge-graph/build', methods=['POST'])
-def build_knowledge_graph():
+@async_route
+async def build_knowledge_graph():
     """手动构建知识图谱"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         paper_ids = data.get('paper_ids', [])
 
-        # 这里可以触发图谱重新构建
-        # 实际实现取决于你的图谱构建逻辑
+        print(f"[INFO] 开始构建知识图谱, 论文IDs: {paper_ids if paper_ids else '全部'}")
+
+        # 导入知识图谱构建器
+        from src.knowledge_graph_builder import KnowledgeGraphBuilder
+
+        builder = KnowledgeGraphBuilder(db_manager=db)
+        result = await builder.build_graph_for_papers(
+            paper_ids=paper_ids if paper_ids else None,
+            min_similarity=0.3,
+            max_relations_per_paper=10
+        )
 
         return jsonify(create_response(
             success=True,
-            message="知识图谱构建任务已提交"
+            data=result,
+            message=result.get('message', '知识图谱构建完成')
         ))
     except Exception as e:
+        import traceback
+        print(f"[ERROR] 构建知识图谱失败: {e}")
+        print(traceback.format_exc())
         return jsonify(create_response(success=False, error=str(e))), 500
 
 

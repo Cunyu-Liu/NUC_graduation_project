@@ -267,6 +267,7 @@ class ResearchGap(Base):
             'potential_approach': self.potential_approach,
             'expected_impact': self.expected_impact,
             'status': self.status,
+            'generated_code_id': self.generated_code[0].id if self.generated_code else None,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 

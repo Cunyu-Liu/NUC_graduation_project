@@ -129,6 +129,36 @@ export default {
   clusterPapers: (paperIds, nClusters = 5, method = 'kmeans', language = 'chinese') =>
     api.post('/cluster', { paper_ids: paperIds, n_clusters: nClusters, method, language }),
 
+  // 保存聚类结果
+  saveClusterResult: (resultId, data) =>
+    api.post('/cluster/save', { result_id: resultId, data }),
+
+  // 获取聚类结果
+  getClusterResult: (resultId) =>
+    api.get(`/cluster/${resultId}`),
+
+  // 导出聚类结果
+  exportClusterResult: (resultId) =>
+    api.get(`/cluster/${resultId}/export`),
+
+  // 导出聚类报告
+  exportClusterReport: (clusterData) =>
+    api.post('/cluster/export-report', { cluster_data: clusterData }, {
+      responseType: 'blob'
+    }).then(response => {
+      // 创建下载链接
+      const blob = new Blob([response], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `cluster_report_${new Date().getTime()}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      return response
+    }),
+
   // 下载结果
   downloadResult: (type, filename) => {
     const url = `/api/download/${type}/${filename}`
@@ -171,6 +201,9 @@ export default {
   // 获取研究空白详情
   getGapDetail: (gapId) => api.get(`/gaps/${gapId}`),
 
+  // 更新研究空白
+  updateGap: (gapId, data) => api.put(`/gaps/${gapId}`, data),
+
   // 生成代码
   generateCode: (gapId, strategy = 'method_improvement') =>
     api.post(`/gaps/${gapId}/generate-code`, { strategy }),
@@ -198,7 +231,9 @@ export default {
   },
 
   // 构建知识图谱
-  buildKnowledgeGraph: (paperIds) => api.post('/knowledge-graph/build', { paper_ids: paperIds }),
+  buildKnowledgeGraph: (paperIds = []) => {
+    return api.post('/knowledge-graph/build', { paper_ids: paperIds })
+  },
 
   // 手动添加关系
   addRelation: (sourceId, targetId, relationType, strength = 0.5, evidence = '') =>

@@ -30,6 +30,19 @@ export default createStore({
       state.files = state.files.filter(f => f.id !== paperId)
     },
 
+    UPDATE_FILE_STATUS(state, { paperId, analyzed, analysisData = null }) {
+      const file = state.files.find(f => f.id === paperId)
+      if (file) {
+        file.analyzed = analyzed
+        // 如果有分析数据，也更新到file中
+        if (analysisData) {
+          file.analysis_summary = analysisData.summary
+          file.analysis_keypoints = analysisData.keypoints
+          file.last_analysis_at = new Date().toISOString()
+        }
+      }
+    },
+
     SET_CURRENT_FILE(state, file) {
       state.currentFile = file
     },
@@ -82,7 +95,13 @@ export default createStore({
       try {
         const response = await api.getPapersList()
         if (response.success) {
-          commit('SET_FILES', response.data)
+          // 处理论文数据，添加analyzed标志
+          const papers = response.data.map(paper => ({
+            ...paper,
+            // 如果论文有分析记录，标记为已分析
+            analyzed: paper.analyzed || paper.analysis_count > 0 || paper.last_analysis_at != null
+          }))
+          commit('SET_FILES', papers)
         }
       } catch (error) {
         console.error('获取论文列表失败:', error)
