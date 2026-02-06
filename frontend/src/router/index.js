@@ -57,6 +57,15 @@ const routes = [
     name: 'Profile',
     component: () => import('@/views/Profile.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    redirect: () => {
+      // 未登录时重定向到登录页，已登录时重定向到首页
+      const token = localStorage.getItem('token')
+      return token ? '/' : '/login'
+    }
   }
 ]
 
@@ -67,7 +76,9 @@ const router = createRouter({
 
 // 路由守卫
 router.beforeEach((to, from, next) => {
-  const isAuthenticated = store.getters.isAuthenticated
+  // 从 localStorage 直接检查认证状态，确保刷新页面后仍然有效
+  const token = localStorage.getItem('token')
+  const isAuthenticated = !!token
 
   // 如果路由需要登录
   if (to.meta.requiresAuth) {

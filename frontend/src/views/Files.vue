@@ -335,10 +335,12 @@ const analyzeFile = (paper) => {
 
 const editFile = (file) => {
   currentFile.value = file
+  // 确保年份是有效的整数，避免null或undefined导致的问题
+  const yearValue = file.year ? parseInt(file.year) : null
   editForm.value = {
     id: file.id,
     title: file.title || '',
-    year: file.year || null,
+    year: yearValue && yearValue > 1900 ? yearValue : null,
     venue: file.venue || '',
     authorsStr: file.authors?.join(', ') || ''
   }
@@ -357,9 +359,17 @@ const saveEdit = async () => {
       updateData.title = editForm.value.title
     }
     
-    // 年份可以是数字或 null
-    if (editForm.value.year !== undefined) {
-      updateData.year = editForm.value.year ? parseInt(editForm.value.year) : null
+    // 年份处理：确保是有效的整数或null，不能是1900
+    if (editForm.value.year !== undefined && editForm.value.year !== null) {
+      const yearNum = parseInt(editForm.value.year)
+      // 只接受合理的年份范围
+      if (yearNum >= 1950 && yearNum <= 2100) {
+        updateData.year = yearNum
+      } else {
+        updateData.year = null
+      }
+    } else {
+      updateData.year = null
     }
     
     // 期刊/会议

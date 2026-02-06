@@ -78,18 +78,35 @@ class CodeGenerator:
             llm: LLM实例
             db_manager: 数据库管理器
         """
+        self.db = db_manager or DatabaseManager()
+        
         if llm:
             self.llm = llm
         elif LANGCHAIN_AVAILABLE and ChatOpenAI:
-            self.llm = ChatOpenAI(
-                model='glm-4-air',
-                temperature=0.2,  # 代码生成需要较低温度
-                max_tokens=16000
-            )
+            # 从环境变量获取配置
+            import os
+            api_key = os.getenv('GLM_API_KEY')
+            base_url = os.getenv('GLM_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4')
+            model = os.getenv('LLM_MODEL', 'glm-4-flash')
+            
+            if not api_key:
+                print("[WARNING] GLM_API_KEY 未设置，代码生成功能将不可用")
+                self.llm = None
+            else:
+                # 设置OpenAI API密钥环境变量（ChatOpenAI需要）
+                os.environ['OPENAI_API_KEY'] = api_key
+                
+                self.llm = ChatOpenAI(
+                    model=model,
+                    temperature=0.2,  # 代码生成需要较低温度
+                    max_tokens=4000,
+                    base_url=base_url,
+                    api_key=api_key
+                )
+                print(f"[INFO] 代码生成器初始化成功，使用模型: {model}")
         else:
+            print("[WARNING] LangChain 不可用，代码生成功能将不可用")
             self.llm = None
-
-        self.db = db_manager or DatabaseManager()
 
         # 代码生成模板
         self.system_prompt = """你是一位世界顶级的深度学习框架开发者和算法工程师。

@@ -146,10 +146,11 @@
               <el-button
                 size="small"
                 @click.stop="generateCode(row)"
-                :disabled="row.status !== 'identified'"
+                :disabled="row.status !== 'identified' || generatingCode"
+                :loading="generatingCode && currentGeneratingGap === row.id"
                 icon="MagicStick"
               >
-                生成代码
+                {{ generatingCode && currentGeneratingGap === row.id ? '生成中...' : '生成代码' }}
               </el-button>
               <el-button
                 size="small"
@@ -514,16 +515,54 @@ const showGapDetail = (row) => {
   showDetailDialog.value = true
 }
 
+const generatingCode = ref(false)
+const currentGeneratingGap = ref(null)
+
 const generateCode = async (gap) => {
+  // 防止重复点击
+  if (generatingCode.value) {
+    ElMessage.warning('正在生成代码，请稍候...')
+    return
+  }
+  
   try {
+    generatingCode.value = true
+    currentGeneratingGap.value = gap.id
+    
+    // 更新本地状态显示生成中
+    gap.status = 'code_generating'
+    
+    ElMessage.info('正在生成代码，这可能需要一些时间...')
+    
     const response = await api.generateCode(gap.id, 'method_improvement')
+    
     if (response.success) {
-      ElMessage.success('代码生成成功')
+      ElMessage.success('代码生成成功！')
+      // 更新本地状态
+      gap.generated_code_id = response.data.id
+      gap.status = 'implemented'
       await loadGaps()
+    } else {
+      // 恢复状态
+      gap.status = 'identified'
+      ElMessage.error(response.error || '代码生成失败')
     }
   } catch (error) {
-    ElMessage.error('代码生成失败')
-    console.error(error)
+    // 恢复状态
+    gap.status = 'identified'
+    console.error('代码生成错误:', error)
+    
+    // 提供更详细的错误信息
+    let errorMsg = '代码生成失败'
+    if (error.response?.data?.error) {
+      errorMsg += `: ${error.response.data.error}`
+    } else if (error.message) {
+      errorMsg += `: ${error.message}`
+    }
+    ElMessage.error(errorMsg)
+  } finally {
+    generatingCode.value = false
+    currentGeneratingGap.value = null
   }
 }
 

@@ -1546,6 +1546,13 @@ async def generate_gap_code(gap_id: int):
         if not gap_dict:
             return jsonify(create_response(success=False, error="研究空白不存在")), 404
 
+        # 检查代码生成器是否可用
+        if not code_generator.llm:
+            return jsonify(create_response(
+                success=False, 
+                error="代码生成功能未启用，请检查GLM_API_KEY是否已配置"
+            )), 503
+
         # 转换为SimpleNamespace对象以便代码生成器使用
         from types import SimpleNamespace
         gap = SimpleNamespace(**gap_dict)
@@ -1578,6 +1585,13 @@ async def generate_gap_code(gap_id: int):
         import traceback
         print(f"[ERROR] 代码生成失败: {e}")
         print(traceback.format_exc())
+        
+        # 确保出错时状态回滚
+        try:
+            db.update_research_gap(gap_id, {'status': 'identified'})
+        except:
+            pass
+            
         return jsonify(create_response(success=False, error=str(e))), 500
 
 

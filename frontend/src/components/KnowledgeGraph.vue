@@ -73,6 +73,7 @@
               {{ node.data.title || '未命名论文' }}
             </div>
             <div class="paper-meta">
+              <el-tag size="small" type="info">{{ relationTypeNames[node.relation] || node.relation }}</el-tag>
               <span>{{ node.data.year || '未知年份' }}</span>
               <span>{{ node.data.venue || '未知期刊' }}</span>
             </div>
