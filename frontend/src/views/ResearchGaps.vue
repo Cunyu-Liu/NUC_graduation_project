@@ -242,11 +242,77 @@
         <!-- 已生成代码 -->
         <div v-if="selectedGap.generated_code_id">
           <h3>生成的代码</h3>
-          <el-button @click="viewGeneratedCode(selectedGap.generated_code_id)">
+          <el-button type="primary" @click="viewGeneratedCode(selectedGap.generated_code_id)" icon="View">
             查看代码
           </el-button>
         </div>
       </div>
+    </el-dialog>
+
+    <!-- 代码查看对话框 -->
+    <el-dialog
+      v-model="showCodeDialog"
+      title="生成的代码"
+      width="80%"
+      :fullscreen="isCodeFullscreen"
+      class="code-dialog"
+    >
+      <template #header>
+        <div class="code-dialog-header">
+          <span>生成的代码 {{ currentCode?.id ? `#${currentCode.id}` : '' }}</span>
+          <div class="code-dialog-actions">
+            <el-button 
+              :icon="isCodeFullscreen ? 'Close' : 'FullScreen'" 
+              @click="isCodeFullscreen = !isCodeFullscreen"
+              size="small"
+            >
+              {{ isCodeFullscreen ? '退出全屏' : '全屏' }}
+            </el-button>
+            <el-button icon="Download" @click="downloadCode" size="small">下载</el-button>
+            <el-button icon="CopyDocument" @click="copyCode" size="small">复制</el-button>
+          </div>
+        </div>
+      </template>
+      
+      <div v-if="codeLoading" class="code-loading">
+        <el-icon class="is-loading" :size="40"><Loading /></el-icon>
+        <p>加载代码中...</p>
+      </div>
+      
+      <div v-else-if="currentCode" class="code-content-wrapper">
+        <el-descriptions :column="3" border class="code-meta">
+          <el-descriptions-item label="编程语言">
+            <el-tag type="primary">{{ currentCode.language || 'Python' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="框架">
+            <el-tag type="success">{{ currentCode.framework || 'PyTorch' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="currentCode.status === 'generated' ? 'success' : 'info'">
+              {{ currentCode.status === 'generated' ? '已生成' : currentCode.status }}
+            </el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
+        
+        <div class="code-block-wrapper">
+          <div class="code-block-header">
+            <span class="code-filename">generated_code.py</span>
+          </div>
+          <pre class="code-block"><code>{{ currentCode.code }}</code></pre>
+        </div>
+        
+        <div v-if="currentCode.docstring" class="code-docstring">
+          <h4>代码说明</h4>
+          <pre class="docstring-content">{{ currentCode.docstring }}</pre>
+        </div>
+        
+        <div v-if="currentCode.dependencies" class="code-dependencies">
+          <h4>依赖项</h4>
+          <pre class="dependencies-content">{{ currentCode.dependencies }}</pre>
+        </div>
+      </div>
+      
+      <el-empty v-else description="暂无代码数据" />
     </el-dialog>
 
     <!-- 编辑对话框 -->
@@ -340,6 +406,12 @@ const showDetailDialog = ref(false)
 const showEditDialog = ref(false)
 const editForm = ref(null)
 const saving = ref(false)
+
+// 代码查看相关
+const showCodeDialog = ref(false)
+const currentCode = ref(null)
+const codeLoading = ref(false)
+const isCodeFullscreen = ref(false)
 
 // 筛选器
 const filters = ref({
@@ -611,9 +683,48 @@ const saveEdit = async () => {
   }
 }
 
-const viewGeneratedCode = (codeId) => {
-  // 跳转到代码编辑器
-  window.open(`#/code-editor/${codeId}`, '_blank')
+const viewGeneratedCode = async (codeId) => {
+  // 打开代码查看对话框
+  showCodeDialog.value = true
+  codeLoading.value = true
+  currentCode.value = null
+  
+  try {
+    const response = await api.getCode(codeId)
+    if (response.success) {
+      currentCode.value = response.data
+    } else {
+      ElMessage.error(response.error || '获取代码失败')
+    }
+  } catch (error) {
+    console.error('获取代码失败:', error)
+    ElMessage.error('获取代码失败: ' + (error.message || '未知错误'))
+  } finally {
+    codeLoading.value = false
+  }
+}
+
+const downloadCode = () => {
+  if (!currentCode.value?.code) return
+  
+  const blob = new Blob([currentCode.value.code], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `generated_code_${currentCode.value.id}.py`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('代码下载成功')
+}
+
+const copyCode = () => {
+  if (!currentCode.value?.code) return
+  
+  navigator.clipboard.writeText(currentCode.value.code).then(() => {
+    ElMessage.success('代码已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败，请手动复制')
+  })
 }
 
 const handleCommand = (command, row) => {
@@ -867,5 +978,106 @@ onMounted(() => {
   min-height: 60px;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* 代码对话框样式 */
+.code-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding-right: 20px;
+}
+
+.code-dialog-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.code-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  color: #909399;
+}
+
+.code-loading p {
+  margin-top: 16px;
+}
+
+.code-content-wrapper {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.code-meta {
+  margin-bottom: 20px;
+}
+
+.code-block-wrapper {
+  background: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.code-block-header {
+  background: #2d2d2d;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #3d3d3d;
+}
+
+.code-filename {
+  color: #cccccc;
+  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.code-block {
+  margin: 0;
+  padding: 16px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.code-docstring, .code-dependencies {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.code-docstring h4, .code-dependencies h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #303133;
+}
+
+.docstring-content, .dependencies-content {
+  margin: 0;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #606266;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 200px;
+  overflow-y: auto;
 }
 </style>

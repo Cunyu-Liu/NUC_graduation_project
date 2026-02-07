@@ -1,193 +1,213 @@
 <template>
-  <div class="login-container">
-    <!-- 背景装饰 -->
-    <div class="background-decoration">
-      <div class="circle circle-1"></div>
-      <div class="circle circle-2"></div>
-      <div class="circle circle-3"></div>
+  <div class="login-page">
+    <!-- 左侧装饰区域 -->
+    <div class="login-left">
+      <div class="left-content">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h1 class="brand-name">科研文献智能分析系统</h1>
+        </div>
+        <p class="brand-desc">
+          基于大语言模型的螺旋式知识积累与代码生成平台<br/>
+          实现从文献分析到代码智能生成的完整闭环
+        </p>
+        <div class="features">
+          <div class="feature-item">
+            <div class="feature-icon">📄</div>
+            <span>智能PDF解析</span>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">🧠</div>
+            <span>AI摘要生成</span>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">🔍</div>
+            <span>研究空白挖掘</span>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">💻</div>
+            <span>智能代码生成</span>
+          </div>
+        </div>
+      </div>
+      <!-- 背景装饰 -->
+      <div class="bg-decoration">
+        <div class="circle c1"></div>
+        <div class="circle c2"></div>
+        <div class="circle c3"></div>
+      </div>
     </div>
 
-    <div class="login-card">
-      <!-- Logo和标题 -->
-      <div class="header">
-        <div class="logo">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+    <!-- 右侧登录表单区域 -->
+    <div class="login-right">
+      <div class="login-box">
+        <!-- 标题 -->
+        <div class="login-header">
+          <h2 class="login-title">{{ isLoginMode ? '欢迎回来' : '创建账号' }}</h2>
+          <p class="login-subtitle">{{ isLoginMode ? '请登录您的账户' : '注册新账户开始使用' }}</p>
         </div>
-        <h1 class="title">科研文献摘要提取系统</h1>
-        <p class="subtitle">Literature Analysis System</p>
-      </div>
 
-      <!-- 切换登录/注册 -->
-      <div class="tabs">
-        <button
-          :class="['tab', { active: isLoginMode }]"
-          @click="isLoginMode = true"
-        >
-          登录
-        </button>
-        <button
-          :class="['tab', { active: !isLoginMode }]"
-          @click="isLoginMode = false"
-        >
-          注册
-        </button>
-      </div>
+        <!-- 切换标签 -->
+        <div class="tab-switcher">
+          <button 
+            :class="['tab-btn', { active: isLoginMode }]" 
+            @click="isLoginMode = true"
+          >
+            登录
+          </button>
+          <button 
+            :class="['tab-btn', { active: !isLoginMode }]" 
+            @click="isLoginMode = false"
+          >
+            注册
+          </button>
+        </div>
 
-      <!-- 登录表单 -->
-      <transition name="fade" mode="out-in">
-        <form v-if="isLoginMode" @submit.prevent="handleLogin" class="form">
-          <div class="form-group">
-            <label class="form-label">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              用户名 / 邮箱
-            </label>
-            <input
-              v-model="loginForm.identifier"
-              type="text"
-              class="form-input"
-              placeholder="请输入用户名或邮箱"
-              required
-            />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M7 11V7C7 5.67392 7.52678 4.40215 8.46447 3.46447C9.40215 2.52678 10.6739 2 12 2C13.3261 2 14.5979 2.52678 15.5355 3.46447C16.4732 4.40215 17 5.67392 17 7V11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              密码
-            </label>
-            <div class="password-input">
+        <!-- 登录表单 -->
+        <transition name="form-fade" mode="out-in">
+          <form v-if="isLoginMode" key="login" @submit.prevent="handleLogin" class="auth-form">
+            <div class="form-item">
+              <label class="form-label">
+                <el-icon><User /></el-icon>
+                用户名 / 邮箱
+              </label>
               <input
-                v-model="loginForm.password"
-                :type="showPassword ? 'text' : 'password'"
-                class="form-input"
-                placeholder="请输入密码"
+                v-model="loginForm.identifier"
+                type="text"
+                class="form-control"
+                placeholder="请输入用户名或邮箱"
                 required
               />
-              <button
-                type="button"
-                class="toggle-password"
-                @click="showPassword = !showPassword"
-              >
-                <svg v-if="showPassword" width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M1 1l22 22" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
             </div>
-          </div>
 
-          <div v-if="errorMessage" class="error-message">
-            {{ errorMessage }}
-          </div>
+            <div class="form-item">
+              <label class="form-label">
+                <el-icon><Lock /></el-icon>
+                密码
+              </label>
+              <div class="password-wrapper">
+                <input
+                  v-model="loginForm.password"
+                  :type="showPassword ? 'text' : 'password'"
+                  class="form-control"
+                  placeholder="请输入密码"
+                  required
+                />
+                <button type="button" class="eye-btn" @click="showPassword = !showPassword">
+                  <el-icon v-if="showPassword"><ViewIcon /></el-icon>
+                  <el-icon v-else><Hide /></el-icon>
+                </button>
+              </div>
+            </div>
 
-          <button type="submit" class="submit-btn" :disabled="loading">
-            <span v-if="loading">登录中...</span>
-            <span v-else>登录</span>
-          </button>
-        </form>
+            <div v-if="errorMessage" class="error-alert">
+              <el-icon><Warning /></el-icon>
+              <span>{{ errorMessage }}</span>
+            </div>
 
-        <!-- 注册表单 -->
-        <form v-else @submit.prevent="handleRegister" class="form">
-          <div class="form-group">
-            <label class="form-label">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              用户名
-            </label>
-            <input
-              v-model="registerForm.username"
-              type="text"
-              class="form-input"
-              placeholder="3-20个字符"
-              minlength="3"
-              maxlength="20"
-              required
-            />
-          </div>
+            <button type="submit" class="submit-button" :disabled="loading">
+              <el-icon v-if="loading" class="loading-icon"><Loading /></el-icon>
+              <span>{{ loading ? '登录中...' : '登 录' }}</span>
+            </button>
+          </form>
 
-          <div class="form-group">
-            <label class="form-label">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              邮箱
-            </label>
-            <input
-              v-model="registerForm.email"
-              type="email"
-              class="form-input"
-              placeholder="example@email.com"
-              required
-            />
-          </div>
+          <!-- 注册表单 -->
+          <form v-else key="register" @submit.prevent="handleRegister" class="auth-form">
+            <div class="form-row">
+              <div class="form-item half">
+                <label class="form-label">
+                  <el-icon><User /></el-icon>
+                  用户名
+                </label>
+                <input
+                  v-model="registerForm.username"
+                  type="text"
+                  class="form-control"
+                  placeholder="3-20个字符"
+                  minlength="3"
+                  maxlength="20"
+                  required
+                />
+              </div>
+              <div class="form-item half">
+                <label class="form-label">
+                  <el-icon><Message /></el-icon>
+                  邮箱
+                </label>
+                <input
+                  v-model="registerForm.email"
+                  type="email"
+                  class="form-control"
+                  placeholder="example@email.com"
+                  required
+                />
+              </div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M7 11V7C7 5.67392 7.52678 4.40215 8.46447 3.46447C9.40215 2.52678 10.6739 2 12 2C13.3261 2 14.5979 2.52678 15.5355 3.46447C16.4732 4.40215 17 5.67392 17 7V11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              密码
-            </label>
-            <input
-              v-model="registerForm.password"
-              type="password"
-              class="form-input"
-              placeholder="至少6个字符"
-              minlength="6"
-              required
-            />
-          </div>
+            <div class="form-item">
+              <label class="form-label">
+                <el-icon><Lock /></el-icon>
+                密码
+              </label>
+              <div class="password-wrapper">
+                <input
+                  v-model="registerForm.password"
+                  :type="showPassword ? 'text' : 'password'"
+                  class="form-control"
+                  placeholder="至少6个字符"
+                  minlength="6"
+                  required
+                />
+                <button type="button" class="eye-btn" @click="showPassword = !showPassword">
+                  <el-icon v-if="showPassword"><ViewIcon /></el-icon>
+                  <el-icon v-else><Hide /></el-icon>
+                </button>
+              </div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M7 11V7C7 5.67392 7.52678 4.40215 8.46447 3.46447C9.40215 2.52678 10.6739 2 12 2C13.3261 2 14.5979 2.52678 15.5355 3.46447C16.4732 4.40215 17 5.67392 17 7V11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              确认密码
-            </label>
-            <input
-              v-model="registerForm.confirmPassword"
-              type="password"
-              class="form-input"
-              placeholder="再次输入密码"
-              minlength="6"
-              required
-            />
-          </div>
+            <div class="form-item">
+              <label class="form-label">
+                <el-icon><Lock /></el-icon>
+                确认密码
+              </label>
+              <div class="password-wrapper">
+                <input
+                  v-model="registerForm.confirmPassword"
+                  :type="showConfirmPassword ? 'text' : 'password'"
+                  class="form-control"
+                  placeholder="再次输入密码"
+                  minlength="6"
+                  required
+                />
+                <button type="button" class="eye-btn" @click="showConfirmPassword = !showConfirmPassword">
+                  <el-icon v-if="showConfirmPassword"><View /></el-icon>
+                  <el-icon v-else><Hide /></el-icon>
+                </button>
+              </div>
+            </div>
 
-          <div v-if="errorMessage" class="error-message">
-            {{ errorMessage }}
-          </div>
+            <div v-if="errorMessage" class="error-alert">
+              <el-icon><Warning /></el-icon>
+              <span>{{ errorMessage }}</span>
+            </div>
 
-          <button type="submit" class="submit-btn" :disabled="loading">
-            <span v-if="loading">注册中...</span>
-            <span v-else>注册</span>
-          </button>
-        </form>
-      </transition>
+            <button type="submit" class="submit-button" :disabled="loading">
+              <el-icon v-if="loading" class="loading-icon"><Loading /></el-icon>
+              <span>{{ loading ? '注册中...' : '注 册' }}</span>
+            </button>
+          </form>
+        </transition>
 
-      <!-- 底部信息 -->
-      <div class="footer">
-        <p>&copy; 2025 科研文献摘要提取系统 | NUC毕业设计</p>
+        <!-- 底部版权 -->
+        <div class="login-footer">
+          <p>&copy; 2025 科研文献智能分析系统 | NUC毕业设计</p>
+        </div>
       </div>
     </div>
   </div>
@@ -195,17 +215,26 @@
 
 <script>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useStore } from 'vuex'
+import { User, Lock, Message, View as ViewIcon, Hide, Loading, Warning } from '@element-plus/icons-vue'
 
 export default {
   name: 'Login',
+  components: {
+    User, Lock, Message, ViewIcon, Hide, Loading, Warning
+  },
   setup() {
     const router = useRouter()
+    const route = useRoute()
     const store = useStore()
+
+    // 获取redirect参数，登录成功后跳转
+    const redirect = route.query.redirect || '/'
 
     const isLoginMode = ref(true)
     const showPassword = ref(false)
+    const showConfirmPassword = ref(false)
     const loading = ref(false)
     const errorMessage = ref('')
 
@@ -233,8 +262,8 @@ export default {
         })
 
         if (response.success) {
-          // 登录成功，跳转到首页
-          router.push('/')
+          // 登录成功，跳转到之前尝试访问的页面或首页
+          router.push(redirect)
         } else {
           errorMessage.value = response.error || '登录失败，请检查用户名和密码'
         }
@@ -266,8 +295,8 @@ export default {
         })
 
         if (response.success) {
-          // 注册成功，自动登录并跳转到首页
-          router.push('/')
+          // 注册成功，自动登录并跳转到之前尝试访问的页面或首页
+          router.push(redirect)
         } else {
           errorMessage.value = response.error || '注册失败，请稍后重试'
         }
@@ -282,6 +311,7 @@ export default {
     return {
       isLoginMode,
       showPassword,
+      showConfirmPassword,
       loading,
       errorMessage,
       loginForm,
@@ -294,251 +324,313 @@ export default {
 </script>
 
 <style scoped>
-.login-container {
+.login-page {
   min-height: 100vh;
+  display: flex;
+  width: 100%;
+}
+
+/* 左侧装饰区域 */
+.login-left {
+  flex: 1;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 60px;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.left-content {
+  position: relative;
+  z-index: 2;
+  max-width: 480px;
+  color: white;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.brand-logo {
+  width: 56px;
+  height: 56px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(10px);
+}
+
+.brand-logo svg {
+  width: 32px;
+  height: 32px;
+  color: white;
+}
+
+.brand-name {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+.brand-desc {
+  font-size: 16px;
+  line-height: 1.8;
+  margin-bottom: 48px;
+  opacity: 0.9;
+}
+
+.features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 12px 20px;
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.feature-icon {
+  font-size: 20px;
 }
 
 /* 背景装饰 */
-.background-decoration {
+.bg-decoration {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden;
-  z-index: 0;
+  pointer-events: none;
 }
 
 .circle {
   position: absolute;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  animation: float 20s infinite ease-in-out;
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.circle-1 {
+.c1 {
+  width: 400px;
+  height: 400px;
+  top: -100px;
+  right: -100px;
+}
+
+.c2 {
   width: 300px;
   height: 300px;
-  top: -100px;
-  left: -100px;
-  animation-delay: 0s;
+  bottom: -50px;
+  left: -50px;
 }
 
-.circle-2 {
+.c3 {
   width: 200px;
   height: 200px;
-  bottom: -50px;
-  right: -50px;
-  animation-delay: 5s;
+  top: 40%;
+  right: 20%;
 }
 
-.circle-3 {
-  width: 150px;
-  height: 150px;
-  top: 50%;
-  right: 10%;
-  animation-delay: 10s;
-}
-
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0) rotate(0deg);
-  }
-  50% {
-    transform: translateY(-20px) rotate(10deg);
-  }
-}
-
-/* 登录卡片 */
-.login-card {
-  position: relative;
-  z-index: 1;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  padding: 50px 45px;
-  width: 100%;
-  max-width: 450px;
-  animation: slideUp 0.5s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 头部 */
-.header {
-  text-align: center;
-  margin-bottom: 35px;
-}
-
-.logo {
-  width: 70px;
-  height: 70px;
-  margin: 0 auto 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 15px;
+/* 右侧登录区域 */
+.login-right {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  padding: 40px;
+  background: #f8fafc;
 }
 
-.logo svg {
-  width: 40px;
-  height: 40px;
+.login-box {
+  width: 100%;
+  max-width: 420px;
+  background: white;
+  border-radius: 20px;
+  padding: 48px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
 }
 
-.title {
-  font-size: 26px;
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-title {
+  font-size: 28px;
   font-weight: 700;
-  color: #2d3748;
+  color: #1e293b;
   margin: 0 0 8px 0;
-  letter-spacing: 0.5px;
 }
 
-.subtitle {
-  font-size: 14px;
-  color: #718096;
+.login-subtitle {
+  font-size: 15px;
+  color: #64748b;
   margin: 0;
-  font-weight: 400;
 }
 
 /* 标签切换 */
-.tabs {
+.tab-switcher {
   display: flex;
-  gap: 10px;
-  margin-bottom: 30px;
-  background: #f7fafc;
-  padding: 5px;
+  gap: 8px;
+  background: #f1f5f9;
+  padding: 6px;
   border-radius: 12px;
+  margin-bottom: 32px;
 }
 
-.tab {
+.tab-btn {
   flex: 1;
-  padding: 12px;
+  padding: 12px 24px;
   border: none;
   background: transparent;
-  color: #718096;
+  color: #64748b;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 10px;
   transition: all 0.3s ease;
 }
 
-.tab.active {
+.tab-btn:hover {
+  color: #667eea;
+}
+
+.tab-btn.active {
   background: white;
   color: #667eea;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
 }
 
-.tab:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.5);
+/* 表单样式 */
+.auth-form {
+  min-height: 280px;
 }
 
-/* 表单 */
-.form {
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-item {
   margin-bottom: 20px;
 }
 
-.form-group {
-  margin-bottom: 22px;
+.form-item.half {
+  flex: 1;
 }
 
 .form-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 14px;
   font-weight: 500;
-  color: #4a5568;
+  color: #374151;
   margin-bottom: 8px;
 }
 
-.form-label svg {
+.form-label .el-icon {
   color: #667eea;
-  flex-shrink: 0;
+  font-size: 16px;
 }
 
-.form-input {
+.form-control {
   width: 100%;
-  padding: 13px 15px;
+  height: 46px;
+  padding: 0 16px;
   border: 2px solid #e2e8f0;
   border-radius: 10px;
   font-size: 15px;
-  transition: all 0.3s ease;
+  color: #1e293b;
   background: white;
-  color: #2d3748;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 
-.form-input:focus {
+.form-control:focus {
   outline: none;
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-.form-input::placeholder {
-  color: #a0aec0;
+.form-control::placeholder {
+  color: #94a3b8;
 }
 
 /* 密码输入框 */
-.password-input {
+.password-wrapper {
   position: relative;
 }
 
-.password-input .form-input {
-  padding-right: 45px;
+.password-wrapper .form-control {
+  padding-right: 44px;
 }
 
-.toggle-password {
+.eye-btn {
   position: absolute;
-  right: 12px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
-  background: none;
+  width: 36px;
+  height: 36px;
   border: none;
-  color: #a0aec0;
+  background: transparent;
+  color: #94a3b8;
   cursor: pointer;
-  padding: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.3s ease;
+  border-radius: 8px;
+  transition: all 0.2s ease;
 }
 
-.toggle-password:hover {
+.eye-btn:hover {
+  background: #f1f5f9;
   color: #667eea;
 }
 
-/* 错误消息 */
-.error-message {
-  padding: 12px 15px;
-  background: #fed7d7;
-  color: #c53030;
+/* 错误提示 */
+.error-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
   border-radius: 8px;
+  color: #dc2626;
   font-size: 14px;
   margin-bottom: 20px;
-  border-left: 3px solid #c53030;
+}
+
+.error-alert .el-icon {
+  font-size: 16px;
+  flex-shrink: 0;
 }
 
 /* 提交按钮 */
-.submit-btn {
+.submit-button {
   width: 100%;
-  padding: 14px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
@@ -547,66 +639,102 @@ export default {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
+  margin-top: 8px;
 }
 
-.submit-btn:hover:not(:disabled) {
+.submit-button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.45);
 }
 
-.submit-btn:active:not(:disabled) {
+.submit-button:active:not(:disabled) {
   transform: translateY(0);
 }
 
-.submit-btn:disabled {
-  opacity: 0.6;
+.submit-button:disabled {
+  opacity: 0.7;
   cursor: not-allowed;
 }
 
-/* 底部 */
-.footer {
-  text-align: center;
-  padding-top: 25px;
-  border-top: 1px solid #e2e8f0;
-  margin-top: 25px;
+.loading-icon {
+  animation: spin 1s linear infinite;
 }
 
-.footer p {
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 底部版权 */
+.login-footer {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.login-footer p {
   font-size: 13px;
-  color: #a0aec0;
+  color: #94a3b8;
   margin: 0;
 }
 
-/* 过渡动画 */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease;
+/* 表单切换动画 */
+.form-fade-enter-active,
+.form-fade-leave-active {
+  transition: all 0.3s ease;
 }
 
-.fade-enter-from,
-.fade-leave-to {
+.form-fade-enter-from {
   opacity: 0;
+  transform: translateX(20px);
 }
 
-/* 响应式 */
+.form-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+
+/* 响应式设计 */
+@media (max-width: 992px) {
+  .login-left {
+    display: none;
+  }
+  
+  .login-right {
+    flex: 1;
+    padding: 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+  
+  .login-box {
+    max-width: 400px;
+    padding: 32px 24px;
+  }
+}
+
 @media (max-width: 480px) {
-  .login-card {
-    padding: 35px 25px;
+  .login-right {
+    padding: 16px;
   }
-
-  .title {
-    font-size: 22px;
+  
+  .login-box {
+    padding: 28px 20px;
+    border-radius: 16px;
   }
-
-  .form-input {
-    padding: 11px 13px;
-    font-size: 14px;
+  
+  .login-title {
+    font-size: 24px;
   }
-
-  .submit-btn {
-    padding: 12px;
-    font-size: 15px;
+  
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+  
+  .form-control {
+    height: 44px;
   }
 }
 </style>

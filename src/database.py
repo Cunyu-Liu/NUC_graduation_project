@@ -257,6 +257,11 @@ class ResearchGap(Base):
         return f"<ResearchGap(id={self.id}, type='{self.gap_type}', status='{self.status}')>"
 
     def to_dict(self) -> Dict[str, Any]:
+        # 安全获取生成的代码ID（uselist=False表示一对一关系）
+        generated_code_id = None
+        if self.generated_code:
+            generated_code_id = self.generated_code.id
+        
         return {
             'id': self.id,
             'analysis_id': self.analysis_id,
@@ -267,7 +272,7 @@ class ResearchGap(Base):
             'potential_approach': self.potential_approach,
             'expected_impact': self.expected_impact,
             'status': self.status,
-            'generated_code_id': self.generated_code[0].id if self.generated_code else None,
+            'generated_code_id': generated_code_id,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 

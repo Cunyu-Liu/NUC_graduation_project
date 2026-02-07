@@ -55,7 +55,8 @@ export const connectSocket = () => {
     // 使用环境变量或当前域名
     const wsUrl = import.meta.env.VITE_WS_URL || `${window.location.protocol}//${window.location.hostname}:${window.location.port || '5000'}`
     socket = io(wsUrl, {
-      transports: ['websocket', 'polling']
+      transports: ['polling'],  // 仅使用HTTP长轮询，与后端配置一致
+      upgrade: false  // 禁用传输升级
     })
 
     socket.on('connect', () => {

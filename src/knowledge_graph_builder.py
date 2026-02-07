@@ -2,7 +2,7 @@
 基于论文内容相似度、关键词重叠、引用关系等建立连接
 """
 import asyncio
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Set
 from collections import defaultdict
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -15,13 +15,15 @@ from src.database import Paper, Relation
 class KnowledgeGraphBuilder:
     """知识图谱构建器"""
 
-    # 关系类型定义
+    # 关系类型定义（使用中文）- 已移除同年发表，新增多种有价值关系
     RELATION_TYPES = {
-        'similar_topic': {'threshold': 0.7, 'weight': 0.8},  # 主题相似
-        'shares_keywords': {'threshold': 0.5, 'weight': 0.6},  # 关键词共享
-        'same_venue': {'threshold': 1.0, 'weight': 0.3},  # 同一会刊
-        'same_year': {'threshold': 1.0, 'weight': 0.2},  # 同年发表
-        'cites': {'threshold': 1.0, 'weight': 1.0},  # 引用关系（需要进一步实现）
+        '主题相似': {'threshold': 0.7, 'weight': 0.8},      # 主题相似
+        '关键词共享': {'threshold': 0.5, 'weight': 0.6},    # 关键词共享
+        '同一会刊': {'threshold': 1.0, 'weight': 0.3},      # 同一会刊
+        '共同作者': {'threshold': 1.0, 'weight': 0.7},      # 共同作者关系
+        '引用关系': {'threshold': 1.0, 'weight': 1.0},      # 引用关系
+        '方法相似': {'threshold': 0.6, 'weight': 0.75},     # 方法论相似
+        '研究脉络': {'threshold': 0.5, 'weight': 0.65},     # 时间演进关系
     }
 
     def __init__(self, db_manager: DatabaseManager = None):
@@ -86,13 +88,30 @@ class KnowledgeGraphBuilder:
         )
         relations_created += len(keyword_relations)
 
-        # 3. 基于元数据的关系（会刊、年份）
+        # 3. 基于元数据的关系（会刊）
         meta_relations = self._build_meta_relations(papers)
         relations_created += len(meta_relations)
 
+        # 4. 共同作者关系
+        author_relations = self._build_author_relations(papers)
+        relations_created += len(author_relations)
+
+        # 5. 方法论相似关系
+        method_relations = self._build_method_relations(
+            papers, max_relations_per_paper
+        )
+        relations_created += len(method_relations)
+
+        # 6. 研究脉络关系（基于时间和主题）
+        evolution_relations = self._build_evolution_relations(
+            papers, max_relations_per_paper
+        )
+        relations_created += len(evolution_relations)
+
         # 合并所有关系并去重
         all_relations = self._merge_relations(
-            content_relations + keyword_relations + meta_relations
+            content_relations + keyword_relations + meta_relations + 
+            author_relations + method_relations + evolution_relations
         )
 
         # 保存到数据库
@@ -182,7 +201,7 @@ class KnowledgeGraphBuilder:
                 relations.append({
                     'source_id': source_id,
                     'target_id': target_id,
-                    'relation_type': 'similar_topic',
+                    'relation_type': '主题相似',
                     'strength': float(sim),
                     'evidence': f'内容相似度: {sim:.3f}'
                 })
@@ -252,7 +271,7 @@ class KnowledgeGraphBuilder:
                 relations.append({
                     'source_id': source_id,
                     'target_id': target_id,
-                    'relation_type': 'shares_keywords',
+                    'relation_type': '关键词共享',
                     'strength': float(sim),
                     'evidence': f'关键词Jaccard相似度: {sim:.3f}'
                 })
@@ -261,24 +280,20 @@ class KnowledgeGraphBuilder:
         return relations
 
     def _build_meta_relations(self, papers: List[Dict]) -> List[Dict]:
-        """基于元数据构建关系（会刊、年份）"""
+        """基于元数据构建关系（仅会刊，年份关系已移除）"""
         print("  - 分析元数据关系...")
 
         relations = []
 
         # 按会刊分组
         venue_groups = defaultdict(list)
-        year_groups = defaultdict(list)
 
         for paper in papers:
             paper_id = paper['id']
             venue = paper.get('venue')
-            year = paper.get('year')
 
             if venue:
                 venue_groups[venue].append(paper_id)
-            if year:
-                year_groups[year].append(paper_id)
 
         # 创建同会刊关系（限制每对论文只创建一次）
         for venue, paper_ids in venue_groups.items():
@@ -288,33 +303,262 @@ class KnowledgeGraphBuilder:
                         relations.append({
                             'source_id': paper_ids[i],
                             'target_id': paper_ids[j],
-                            'relation_type': 'same_venue',
+                            'relation_type': '同一会刊',
                             'strength': 0.3,
                             'evidence': f'发表于: {venue}'
                         })
 
-        # 创建同年关系
-        for year, paper_ids in year_groups.items():
-            if len(paper_ids) >= 2:
-                for i in range(len(paper_ids)):
-                    for j in range(i + 1, len(paper_ids)):
-                        # 检查是否已存在同会刊关系
-                        existing = any(
-                            r['source_id'] == min(paper_ids[i], paper_ids[j]) and
-                            r['target_id'] == max(paper_ids[i], paper_ids[j]) and
-                            r['relation_type'] == 'same_venue'
-                            for r in relations
-                        )
-                        if not existing:
-                            relations.append({
-                                'source_id': paper_ids[i],
-                                'target_id': paper_ids[j],
-                                'relation_type': 'same_year',
-                                'strength': 0.2,
-                                'evidence': f'发表年份: {year}'
-                            })
-
         print(f"    找到 {len(relations)} 个元数据关系")
+        return relations
+
+    def _build_author_relations(self, papers: List[Dict]) -> List[Dict]:
+        """
+        基于共同作者构建关系
+        如果两篇论文有共同作者，则建立关系
+        """
+        print("  - 分析共同作者关系...")
+
+        relations = []
+        n = len(papers)
+
+        # 构建作者到论文的映射
+        author_to_papers: Dict[str, Set[int]] = defaultdict(set)
+        paper_authors: Dict[int, Set[str]] = {}
+
+        for paper in papers:
+            paper_id = paper['id']
+            # 从metadata中获取作者
+            authors = paper.get('metadata', {}).get('authors', [])
+            if not authors:
+                authors = paper.get('authors', [])
+            
+            author_set = set()
+            for author in authors:
+                if isinstance(author, str):
+                    author_name = author.strip()
+                    if author_name:
+                        author_set.add(author_name)
+                        author_to_papers[author_name].add(paper_id)
+                elif isinstance(author, dict):
+                    author_name = author.get('name', '').strip()
+                    if author_name:
+                        author_set.add(author_name)
+                        author_to_papers[author_name].add(paper_id)
+            
+            paper_authors[paper_id] = author_set
+
+        # 查找有共同作者的论文对
+        for i in range(n):
+            paper_i = papers[i]
+            id_i = paper_i['id']
+            authors_i = paper_authors.get(id_i, set())
+
+            if not authors_i:
+                continue
+
+            for j in range(i + 1, n):
+                paper_j = papers[j]
+                id_j = paper_j['id']
+                authors_j = paper_authors.get(id_j, set())
+
+                if not authors_j:
+                    continue
+
+                # 计算共同作者
+                common_authors = authors_i & authors_j
+                
+                if common_authors:
+                    # 根据共同作者数量计算强度
+                    strength = min(1.0, len(common_authors) / max(len(authors_i), len(authors_j)) * 1.5)
+                    
+                    relations.append({
+                        'source_id': id_i,
+                        'target_id': id_j,
+                        'relation_type': '共同作者',
+                        'strength': float(strength),
+                        'evidence': f'共同作者: {", ".join(list(common_authors)[:3])}'
+                    })
+
+        print(f"    找到 {len(relations)} 个共同作者关系")
+        return relations
+
+    def _build_method_relations(self, papers: List[Dict], max_relations: int) -> List[Dict]:
+        """
+        基于方法论相似度构建关系
+        通过分析方法章节中的关键词来判断
+        """
+        print("  - 分析方法论相似关系...")
+
+        relations = []
+        n = len(papers)
+
+        # 提取每篇论文的方法关键词
+        method_keywords = {}
+        method_indicators = {
+            'deep learning', 'neural network', 'cnn', 'rnn', 'lstm', 'transformer',
+            'bert', 'gpt', 'attention', 'gan', 'reinforcement learning',
+            'supervised', 'unsupervised', 'semi-supervised', 'self-supervised',
+            'classification', 'regression', 'clustering', 'generation',
+            'optimization', 'gradient descent', 'adam', 'sgd',
+            'cnn', 'resnet', 'vgg', 'inception', 'yolo',
+            'rnn', 'lstm', 'gru', 'seq2seq', 'attention mechanism',
+            '机器学习', '深度学习', '神经网络', '卷积', '循环神经网络',
+            '监督学习', '无监督学习', '强化学习', '迁移学习',
+            'classification', 'regression', 'clustering',
+            'decision tree', 'random forest', 'svm', 'k-means',
+            'naive bayes', 'logistic regression', 'linear regression'
+        }
+
+        for paper in papers:
+            paper_id = paper['id']
+            # 尝试从方法章节提取
+            sections = paper.get('metadata', {}).get('sections', {})
+            method_text = ""
+            
+            for section_name, section_content in sections.items():
+                lower_name = section_name.lower()
+                if any(keyword in lower_name for keyword in ['method', 'methodology', 'approach', 'model', 'algorithm', '方法']):
+                    method_text += " " + section_content
+            
+            # 如果没有方法章节，使用标题和摘要
+            if not method_text:
+                method_text = paper.get('title', '') + " " + paper.get('abstract', '')
+
+            # 提取方法关键词
+            method_text_lower = method_text.lower()
+            found_keywords = set()
+            
+            for indicator in method_indicators:
+                if indicator in method_text_lower:
+                    found_keywords.add(indicator)
+            
+            method_keywords[paper_id] = found_keywords
+
+        # 计算方法相似度
+        for i in range(n):
+            paper_i = papers[i]
+            id_i = paper_i['id']
+            keywords_i = method_keywords.get(id_i, set())
+
+            if not keywords_i:
+                continue
+
+            similarities = []
+            for j in range(n):
+                if i == j:
+                    continue
+                
+                paper_j = papers[j]
+                id_j = paper_j['id']
+                keywords_j = method_keywords.get(id_j, set())
+                
+                if not keywords_j:
+                    continue
+
+                # 计算Jaccard相似度
+                intersection = len(keywords_i & keywords_j)
+                union = len(keywords_i | keywords_j)
+                
+                if union > 0:
+                    similarity = intersection / union
+                    if similarity >= 0.2:  # 至少20%的方法重叠
+                        similarities.append((j, similarity, intersection))
+
+            # 排序并取前N
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            similarities = similarities[:max_relations]
+
+            for j, sim, common_count in similarities:
+                source_id = papers[i]['id']
+                target_id = papers[j]['id']
+
+                if source_id > target_id:
+                    source_id, target_id = target_id, source_id
+
+                relations.append({
+                    'source_id': source_id,
+                    'target_id': target_id,
+                    'relation_type': '方法相似',
+                    'strength': float(sim),
+                    'evidence': f'共享{common_count}个方法关键词'
+                })
+
+        print(f"    找到 {len(relations)} 个方法相似关系")
+        return relations
+
+    def _build_evolution_relations(self, papers: List[Dict], max_relations: int) -> List[Dict]:
+        """
+        构建研究脉络关系（时间演进关系）
+        基于发表时间和内容相似度，找出研究的发展脉络
+        """
+        print("  - 分析研究脉络关系...")
+
+        relations = []
+        
+        # 按年份排序
+        papers_with_year = []
+        for paper in papers:
+            year = paper.get('year') or paper.get('metadata', {}).get('year', 0)
+            try:
+                year = int(year) if year else 0
+            except:
+                year = 0
+            papers_with_year.append((paper, year))
+        
+        # 只考虑有年份信息的论文
+        papers_with_year = [(p, y) for p, y in papers_with_year if y > 1990]
+        papers_with_year.sort(key=lambda x: x[1])  # 按年份排序
+
+        if len(papers_with_year) < 2:
+            print("    论文年份信息不足，跳过研究脉络分析")
+            return relations
+
+        # 对于每篇论文，找后续年份中内容最相似的论文
+        for i, (paper_i, year_i) in enumerate(papers_with_year):
+            id_i = paper_i['id']
+            
+            # 准备文本
+            text_i = paper_i.get('title', '') + " " + paper_i.get('abstract', '')
+            
+            similarities = []
+            
+            # 只考虑后续年份的论文
+            for j in range(i + 1, min(i + 10, len(papers_with_year))):
+                paper_j, year_j = papers_with_year[j]
+                id_j = paper_j['id']
+                
+                # 年份差不能超过5年
+                if year_j - year_i > 5:
+                    continue
+                
+                text_j = paper_j.get('title', '') + " " + paper_j.get('abstract', '')
+                
+                # 简单计算相似度（基于关键词重叠）
+                words_i = set(text_i.lower().split())
+                words_j = set(text_j.lower().split())
+                
+                if words_i and words_j:
+                    intersection = len(words_i & words_j)
+                    union = len(words_i | words_j)
+                    similarity = intersection / union if union > 0 else 0
+                    
+                    if similarity >= 0.3:
+                        similarities.append((id_j, similarity, year_j - year_i))
+
+            # 排序并取前N
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            similarities = similarities[:3]  # 每篇论文最多3个演进关系
+
+            for target_id, sim, year_diff in similarities:
+                relations.append({
+                    'source_id': id_i,
+                    'target_id': target_id,
+                    'relation_type': '研究脉络',
+                    'strength': float(sim),
+                    'evidence': f'{year_diff}年演进，相似度{sim:.2f}'
+                })
+
+        print(f"    找到 {len(relations)} 个研究脉络关系")
         return relations
 
     def _merge_relations(self, relations: List[Dict]) -> List[Dict]:

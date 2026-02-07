@@ -111,15 +111,15 @@ CORS(app, resources={
 })
 
 # SocketIO配置 - 使用threading模式以兼容asyncio
-# 注意：eventlet会monkey-patch标准库，在macOS上会破坏asyncio的Kqueue selector
-# 因此我们使用threading模式，这样可以与asyncio共存
+# 注意：threading模式下不允许WebSocket升级，使用HTTP长轮询
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
     async_mode='threading',
     logger=False,
     engineio_logger=False,
-    allow_upgrades=True  # 允许升级到WebSocket
+    allow_upgrades=False,  # 禁用WebSocket升级，使用HTTP长轮询
+    transports=['polling']  # 仅使用HTTP长轮询
 )
 SOCKETIO_MODE = 'threading'
 

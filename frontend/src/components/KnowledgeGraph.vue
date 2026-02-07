@@ -4,7 +4,8 @@
       <h2>知识图谱可视化</h2>
       <div class="controls">
         <el-button @click="refreshGraph" icon="Refresh" :loading="loading">刷新</el-button>
-        <el-button @click="resetZoom" icon="ZoomOut">重置视图</el-button>
+        <el-button @click="fitGraphToView" icon="FullScreen">适应视图</el-button>
+        <el-button @click="resetZoom" icon="ZoomOut">重置缩放</el-button>
         <el-select v-model="relationFilter" placeholder="关系类型" multiple style="width: 200px">
           <el-option v-for="type in relationTypes" :key="type" :label="relationTypeNames[type] || type" :value="type" />
         </el-select>
@@ -129,26 +130,57 @@ const svgElement = ref(null)
 const graphContainer = ref(null)
 let svg, g, simulation, zoom
 
-// 关系类型颜色映射
+// 关系类型颜色映射（支持中文和英文）
 const relationColors = {
-  'cites': '#FF6B6B',
-  'extends': '#4ECDC4',
-  'improves': '#45B7D1',
-  'applies': '#FFA07A',
-  'contradicts': '#98D8C8',
-  'related': '#F7DC6F',
-  'similar': '#BB8FCE'
+  // 中文关系类型 - 新增多种有价值关系
+  '主题相似': '#E74C3C',      // 红色 - 内容相似
+  '关键词共享': '#3498DB',    // 蓝色 - 关键词
+  '同一会刊': '#9B59B6',      // 紫色 - 会刊
+  '共同作者': '#F39C12',      // 橙色 - 作者
+  '引用关系': '#27AE60',      // 绿色 - 引用
+  '方法相似': '#1ABC9C',      // 青色 - 方法
+  '研究脉络': '#E91E63',      // 粉色 - 演进
+  // 英文关系类型（兼容旧数据）
+  'cites': '#27AE60',
+  'extends': '#3498DB',
+  'improves': '#1ABC9C',
+  'applies': '#F39C12',
+  'contradicts': '#E74C3C',
+  'related': '#9B59B6',
+  'similar': '#E74C3C',
+  'similar_topic': '#E74C3C',
+  'shares_keywords': '#3498DB',
+  'same_venue': '#9B59B6',
+  'same_author': '#F39C12',
+  'method_similar': '#1ABC9C',
+  'evolution': '#E91E63'
 }
 
 // 关系类型中文映射
 const relationTypeNames = {
+  // 中文关系类型 - 新增关系
+  '主题相似': '主题相似',
+  '关键词共享': '关键词共享',
+  '同一会刊': '同一会刊',
+  '共同作者': '共同作者',
+  '引用关系': '引用关系',
+  '方法相似': '方法相似',
+  '研究脉络': '研究脉络',
+  // 英文关系类型映射为中文（兼容旧数据）
   'cites': '引用',
   'extends': '扩展',
   'improves': '改进',
   'applies': '应用',
   'contradicts': '矛盾',
   'related': '相关',
-  'similar': '相似'
+  'similar': '相似',
+  'similar_topic': '主题相似',
+  'shares_keywords': '关键词共享',
+  'same_venue': '同一会刊',
+  'same_author': '共同作者',
+  'method_similar': '方法相似',
+  'evolution': '研究脉络',
+
 }
 
 // 计算属性
@@ -197,16 +229,16 @@ const initGraph = () => {
   // 创建主分组
   g = svg.append('g')
 
-  // 添加箭头标记
+  // 添加箭头标记 - 调整位置以适应更大的节点间距
   const defs = svg.append('defs')
   Object.keys(relationColors).forEach(type => {
     defs.append('marker')
       .attr('id', `arrow-${type}`)
       .attr('viewBox', '0 0 10 10')
-      .attr('refX', 25)
+      .attr('refX', 35)  // 从25增加到35，适应更大的节点间距
       .attr('refY', 5)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
+      .attr('markerWidth', 8)  // 稍微增大箭头
+      .attr('markerHeight', 8)
       .attr('orient', 'auto-start-reverse')
       .append('path')
       .attr('d', 'M 0 0 L 10 5 L 0 10 z')
@@ -244,41 +276,53 @@ const updateGraph = () => {
     target: nodeMap.get(edge.target)
   })).filter(edge => edge.source && edge.target) // 过滤掉无效的边
 
-  // 创建力导向布局
+  // 创建力导向布局 - 调整参数使节点间距更大
   simulation = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links)
       .id(d => d.id)
-      .distance(150)
+      .distance(250)  // 从150增加到250，连接节点距离更远
     )
-    .force('charge', d3.forceManyBody().strength(-400))
+    .force('charge', d3.forceManyBody()
+      .strength(-800)  // 从-400增加到-800，斥力更强，节点更分散
+      .distanceMin(50)  // 最小作用距离，防止节点过度聚集
+      .distanceMax(800) // 最大作用距离
+    )
     .force('center', d3.forceCenter(
       graphContainer.value.clientWidth / 2,
       graphContainer.value.clientHeight / 2
     ))
-    .force('collision', d3.forceCollide().radius(40))
+    .force('collision', d3.forceCollide().radius(d => {
+      // 根据节点连接数动态调整碰撞半径
+      const connectionCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length
+      return 60 + Math.min(connectionCount * 5, 30)  // 基础60，根据连接数增加
+    }))
+    .force('x', d3.forceX(graphContainer.value.clientWidth / 2).strength(0.05))  // 添加水平方向弱引力
+    .force('y', d3.forceY(graphContainer.value.clientHeight / 2).strength(0.05)) // 添加垂直方向弱引力
 
-  // 绘制边
+  // 绘制边 - 加粗线条以适应更大的间距
   const linkElements = g.append('g')
     .attr('class', 'links')
     .selectAll('line')
     .data(links)
     .join('line')
     .attr('stroke', d => relationColors[d.type] || '#999')
-    .attr('stroke-width', d => Math.max(2, d.strength * 4 || 2))
+    .attr('stroke-width', d => Math.max(2.5, d.strength * 5 || 2.5))  // 加粗线条
     .attr('marker-end', d => `url(#arrow-${d.type})`)
-    .attr('opacity', 0.7)
+    .attr('opacity', 0.75)
 
-  // 绘制边标签
+  // 绘制边标签 - 优化显示
   const linkLabels = g.append('g')
     .attr('class', 'link-labels')
     .selectAll('text')
     .data(links)
     .join('text')
     .text(d => relationTypeNames[d.type] || d.type)
-    .attr('font-size', '10px')
-    .attr('fill', '#666')
+    .attr('font-size', '11px')  // 稍大字体
+    .attr('fill', '#444')  // 更深的颜色
     .attr('text-anchor', 'middle')
-    .attr('dy', -5)
+    .attr('dy', -8)  // 离线条更远
+    .attr('font-weight', '500')  // 加粗
+    .style('text-shadow', '1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white')  // 添加白色描边
 
   // 绘制节点组
   const nodeElements = g.append('g')
@@ -294,11 +338,11 @@ const updateGraph = () => {
     )
     .on('click', (event, d) => showNodeDetail(d))
 
-  // 节点圆形 - 根据是否有关系调整大小
+  // 节点圆形 - 增大节点大小以适应更大的间距
   nodeElements.append('circle')
     .attr('r', d => {
       const connectionCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length
-      return 20 + Math.min(connectionCount * 3, 15)
+      return 28 + Math.min(connectionCount * 4, 20)  // 从20增加到28，节点更大
     })
     .attr('fill', d => {
       const connectionCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length
@@ -306,19 +350,19 @@ const updateGraph = () => {
       return d3.interpolateBlues(0.3 + Math.min(connectionCount * 0.1, 0.5))
     })
     .attr('stroke', '#fff')
-    .attr('stroke-width', 2)
+    .attr('stroke-width', 3)  // 边框加粗
     .style('cursor', 'pointer')
 
-  // 节点标签
+  // 节点标签 - 调整位置，显示更多文字
   nodeElements.append('text')
     .text(d => {
       const title = d.title || d.data?.title || 'Paper'
-      return title.length > 12 ? title.substring(0, 12) + '...' : title
+      return title.length > 16 ? title.substring(0, 16) + '...' : title  // 从12增加到16
     })
     .attr('x', 0)
-    .attr('y', 35)
+    .attr('y', 45)  // 从35增加到45，适应更大的节点
     .attr('text-anchor', 'middle')
-    .attr('font-size', '11px')
+    .attr('font-size', '12px')  // 字体稍大
     .attr('fill', '#333')
     .attr('font-weight', '500')
 
@@ -416,6 +460,11 @@ const refreshGraph = async () => {
       initGraph()
       updateGraph()
 
+      // 自适应缩放，使所有节点可见
+      setTimeout(() => {
+        fitGraphToView()
+      }, 500)
+
       const nodeCount = Object.keys(graphData.value.nodes).length
       const edgeCount = graphData.value.edges.length
 
@@ -435,17 +484,69 @@ const refreshGraph = async () => {
   }
 }
 
+const fitGraphToView = () => {
+  // 自适应缩放，使所有节点可见
+  if (!g || !svg) return
+  
+  const nodeElements = g.selectAll('.node')
+  if (nodeElements.empty()) return
+  
+  const containerWidth = graphContainer.value.clientWidth
+  const containerHeight = graphContainer.value.clientHeight
+  
+  // 获取所有节点的位置范围
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  
+  nodeElements.each(function(d) {
+    if (d.x !== undefined && d.y !== undefined) {
+      minX = Math.min(minX, d.x)
+      maxX = Math.max(maxX, d.x)
+      minY = Math.min(minY, d.y)
+      maxY = Math.max(maxY, d.y)
+    }
+  })
+  
+  if (minX === Infinity) return
+  
+  // 添加边距
+  const padding = 100
+  minX -= padding
+  maxX += padding
+  minY -= padding
+  maxY += padding
+  
+  const graphWidth = maxX - minX
+  const graphHeight = maxY - minY
+  
+  if (graphWidth === 0 || graphHeight === 0) return
+  
+  // 计算合适的缩放比例
+  const scaleX = containerWidth / graphWidth
+  const scaleY = containerHeight / graphHeight
+  const scale = Math.min(scaleX, scaleY, 1) * 0.9  // 最大缩放1，留10%边距
+  
+  // 计算平移量，使图谱居中
+  const translateX = (containerWidth - (minX + maxX) * scale) / 2
+  const translateY = (containerHeight - (minY + maxY) * scale) / 2
+  
+  const transform = d3.zoomIdentity
+    .translate(translateX, translateY)
+    .scale(scale)
+  
+  svg.transition()
+    .duration(750)
+    .call(zoom.transform, transform)
+}
+
 const resetZoom = () => {
-  if (svg && zoom) {
-    svg.transition()
-      .duration(750)
-      .call(zoom.transform, d3.zoomIdentity)
-  }
+  // 自适应重置，使所有节点可见
+  fitGraphToView()
 }
 
 // 暴露方法给父组件
 defineExpose({
-  refreshGraph
+  refreshGraph,
+  fitGraphToView
 })
 
 // 生命周期
