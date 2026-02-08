@@ -438,53 +438,70 @@ class TopicClustering:
             labels: 聚类标签
             save_path: 保存路径
         """
-        save_path = save_path or settings.cluster_output_dir / "cluster_report.txt"
+        from datetime import datetime
+        save_path = save_path or settings.cluster_output_dir / "cluster_report.md"
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # 构建markdown格式内容
+        md_content = f"""# 论文主题聚类分析报告
+
+> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+## 基本信息
+
+| 项目 | 内容 |
+|------|------|
+| 聚类方法 | {self.clustering_method} |
+| 聚类数量 | {len(cluster_analysis)} |
+| 论文总数 | {len(labels)} |
+
+---
+
+## 各聚类详细信息
+
+"""
+
+        for cluster_id, info in cluster_analysis.items():
+            md_content += f"""### 聚类 {cluster_id}
+
+| 属性 | 内容 |
+|------|------|
+| 论文数量 | {info['paper_count']} |
+| 核心关键词 | {', '.join(info['top_keywords'][:10])} |
+
+**包含论文:**
+
+"""
+            for i, paper_name in enumerate(info['papers'], 1):
+                md_content += f"{i}. {paper_name}\n"
+
+            md_content += "\n**代表性论文:**\n\n"
+            for i, rep_paper in enumerate(info['representative_papers'], 1):
+                md_content += f"""{i}. **{rep_paper['title'] or rep_paper['filename']}**
+   - 摘要: {rep_paper['abstract']}
+
+"""
+
+        md_content += """---
+
+## 研究趋势与建议
+
+"""
+        # 生成研究趋势分析
+        trends = self._analyze_research_trends(cluster_analysis)
+        md_content += trends
+
+        md_content += """
+
+---
+
+*此报告由院士级科研智能助手自动生成*
+"""
+
         with open(save_path, "w", encoding="utf-8") as f:
-            f.write("=" * 80 + "\n")
-            f.write("论文主题聚类分析报告\n")
-            f.write("=" * 80 + "\n\n")
-
-            f.write(f"聚类方法: {self.clustering_method}\n")
-            f.write(f"聚类数量: {len(cluster_analysis)}\n")
-            f.write(f"论文总数: {len(labels)}\n\n")
-
-            # 计算聚类质量
-            if len(np.unique(labels)) > 1:
-                # 这里可以添加轮廓系数等评估指标
-                pass
-
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("各聚类详细信息\n")
-            f.write("=" * 80 + "\n\n")
-
-            for cluster_id, info in cluster_analysis.items():
-                f.write(f"\n{'─' * 80}\n")
-                f.write(f"聚类 {cluster_id}\n")
-                f.write(f"{'─' * 80}\n\n")
-
-                f.write(f"论文数量: {info['paper_count']}\n\n")
-                f.write(f"核心关键词: {', '.join(info['top_keywords'][:10])}\n\n")
-
-                f.write("包含论文:\n")
-                for i, paper_name in enumerate(info['papers'], 1):
-                    f.write(f"  {i}. {paper_name}\n")
-
-                f.write("\n代表性论文:\n")
-                for i, rep_paper in enumerate(info['representative_papers'], 1):
-                    f.write(f"\n  {i}. {rep_paper['title'] or rep_paper['filename']}\n")
-                    f.write(f"     摘要: {rep_paper['abstract']}\n")
-
-                f.write("\n")
-
-            f.write("\n" + "=" * 80 + "\n")
-            f.write("研究趋势与建议\n")
-            f.write("=" * 80 + "\n\n")
-
-            # 生成研究趋势分析
-            trends = self._analyze_research_trends(cluster_analysis)
-            f.write(trends)
+            f.write(md_content)
 
         print(f"聚类报告已保存到: {save_path}")
 

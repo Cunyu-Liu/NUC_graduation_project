@@ -759,11 +759,11 @@ ${gap.potential_approach}
 ${gap.expected_impact}
   `.trim()
 
-  const blob = new Blob([content], { type: 'text/plain' })
+  const blob = new Blob([content], { type: 'text/markdown' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `research_gap_${gap.id}.txt`
+  a.download = `research_gap_${gap.id}.md`
   a.click()
   URL.revokeObjectURL(url)
   ElMessage.success('导出成功')
@@ -824,11 +824,11 @@ const exportGaps = () => {
     content += '报告结束\n'
 
     // 下载文件
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `research_gaps_export_${new Date().getTime()}.txt`
+    a.download = `research_gaps_export_${new Date().getTime()}.md`
     a.click()
     URL.revokeObjectURL(url)
 

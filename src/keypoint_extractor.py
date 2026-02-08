@@ -1,16 +1,35 @@
-"""要点提取模块 - 识别论文核心创新、实验方法与结论"""
+"""要点提取模块 - v4.2 LangChain优化版
+
+使用 LangChain Prompt Templates 和 Pydantic Output Parser
+实现结构化输出，减少解析错误
+"""
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from langchain_openai import ChatOpenAI
 
 from src.config import settings
 from src.pdf_parser import ParsedPaper
-from src.prompts import get_keypoint_prompt
+
+# v4.2: 使用新的 LangChain 辅助模块
+try:
+    from src.langchain_helpers import StructuredLLMHelper, get_structured_llm_helper
+    from src.prompts_langchain import get_empty_keypoints
+    LANGCHAIN_V2_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_V2_AVAILABLE = False
+    print("[WARNING] 新的 LangChain 模块不可用，将使用降级模式")
+
+# 保留旧版导入以确保兼容性
+try:
+    from langchain_openai import ChatOpenAI
+    from src.prompts import get_keypoint_prompt
+    LANGCHAIN_LEGACY_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_LEGACY_AVAILABLE = False
 
 
 class KeypointExtractor:
-    """论文要点提取器"""
+    """论文要点提取器 - v4.2 LangChain优化版"""
 
     def __init__(
         self,
@@ -18,7 +37,8 @@ class KeypointExtractor:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        use_langchain_v2: bool = True  # v4.2: 默认使用新的架构
     ):
         """
         初始化要点提取器
@@ -29,24 +49,40 @@ class KeypointExtractor:
             model: 模型名称
             temperature: 温度参数
             max_tokens: 最大token数
+            use_langchain_v2: 是否使用新的 LangChain 架构
         """
         self.api_key = api_key or settings.glm_api_key
         self.base_url = base_url or settings.glm_base_url
         self.model = model or settings.default_model
         self.temperature = temperature if temperature is not None else settings.default_temperature
         self.max_tokens = max_tokens or settings.max_tokens
+        self.use_langchain_v2 = use_langchain_v2 and LANGCHAIN_V2_AVAILABLE
 
         if not self.api_key:
             raise ValueError("请设置GLM_API_KEY环境变量")
 
-        # 初始化LLM
-        self.llm = ChatOpenAI(
-            model=self.model,
-            api_key=self.api_key,
-            base_url=self.base_url,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
+        # v4.2: 初始化新的 LangChain helper
+        if self.use_langchain_v2:
+            self.helper = get_structured_llm_helper(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
+            self.llm = self.helper.llm
+        # 否则使用旧的初始化方式
+        elif LANGCHAIN_LEGACY_AVAILABLE:
+            self.llm = ChatOpenAI(
+                model=self.model,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+            self.helper = None
+        else:
+            raise ValueError("LangChain 不可用且未启用 v2 模式")
 
     def extract_keypoints(
         self,
@@ -73,24 +109,85 @@ class KeypointExtractor:
         ])
         keywords_text = ", ".join(paper.metadata.keywords) if paper.metadata.keywords else "未提取到关键词"
 
-        # 使用专业提示词
-        prompt = get_keypoint_prompt(
-            title=paper.metadata.title or paper.filename,
-            abstract=paper.metadata.abstract or "未提取到摘要",
-            keywords=keywords_text,
-            sections=sections_text,
-            content=content
-        )
-
-        # 生成要点
-        try:
+        # v4.2: 使用新的 helper 提取要点（使用 Pydantic Output Parser）
+        if self.use_langchain_v2 and self.helper:
+            keypoints = self.helper.extract_keypoints(
+                title=paper.metadata.title or paper.filename,
+                abstract=paper.metadata.abstract or "未提取到摘要",
+                keywords=keywords_text,
+                sections=sections_text,
+                content=content
+            )
+        else:
+            # 旧版兼容模式（手动解析 JSON）
             from langchain_core.messages import HumanMessage
+            prompt = get_keypoint_prompt(
+                title=paper.metadata.title or paper.filename,
+                abstract=paper.metadata.abstract or "未提取到摘要",
+                keywords=keywords_text,
+                sections=sections_text,
+                content=content
+            )
             response = self.llm.invoke([HumanMessage(content=prompt)])
-            result = response.content
-            keypoints = self._parse_response(result)
-        except Exception as e:
-            print(f"要点提取失败: {e}")
-            keypoints = self._get_empty_keypoints()
+            keypoints = self._parse_response(response.content)
+
+        # 保存要点
+        if save:
+            self._save_keypoints(paper, keypoints, output_dir)
+
+        return keypoints
+
+    async def aextract_keypoints(
+        self,
+        paper: ParsedPaper,
+        save: bool = True,
+        output_dir: Optional[Path] = None
+    ) -> Dict[str, List[str]]:
+        """
+        异步提取论文要点
+
+        Args:
+            paper: 解析后的论文对象
+            save: 是否保存要点到文件
+            output_dir: 输出目录
+
+        Returns:
+            Dict[str, List[str]]: 提取的要点字典
+        """
+        # 准备内容
+        content = self._prepare_paper_content(paper)
+        sections_text = "\n".join([
+            f"### {name}\n{content_part[:500]}"
+            for name, content_part in paper.metadata.sections.items()
+        ])
+        keywords_text = ", ".join(paper.metadata.keywords) if paper.metadata.keywords else "未提取到关键词"
+
+        # v4.2: 使用新的 helper 异步提取要点
+        if self.use_langchain_v2 and self.helper:
+            keypoints = await self.helper.aextract_keypoints(
+                title=paper.metadata.title or paper.filename,
+                abstract=paper.metadata.abstract or "未提取到摘要",
+                keywords=keywords_text,
+                sections=sections_text,
+                content=content
+            )
+        else:
+            # 旧版兼容模式
+            import asyncio
+            from langchain_core.messages import HumanMessage
+            prompt = get_keypoint_prompt(
+                title=paper.metadata.title or paper.filename,
+                abstract=paper.metadata.abstract or "未提取到摘要",
+                keywords=keywords_text,
+                sections=sections_text,
+                content=content
+            )
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.llm.invoke([HumanMessage(content=prompt)])
+            )
+            keypoints = self._parse_response(response.content)
 
         # 保存要点
         if save:
@@ -137,7 +234,7 @@ class KeypointExtractor:
 
     def _parse_response(self, response: str) -> Dict[str, List[str]]:
         """
-        解析LLM响应，提取JSON数据
+        解析LLM响应，提取JSON数据（旧版兼容）
 
         Args:
             response: LLM响应文本
@@ -180,7 +277,7 @@ class KeypointExtractor:
 
     def _get_empty_keypoints(self) -> Dict[str, List[str]]:
         """返回空的要点结构"""
-        return {
+        return get_empty_keypoints() if LANGCHAIN_V2_AVAILABLE else {
             "innovations": [],
             "methods": [],
             "experiments": [],
@@ -206,38 +303,54 @@ class KeypointExtractor:
         output_dir = output_dir or settings.keypoints_output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 使用原文件名（去掉.pdf）作为输出文件名
-        output_filename = Path(paper.filename).stem + "_keypoints.txt"
+        # 使用原文件名（去掉.pdf）作为输出文件名，保存为markdown格式
+        output_filename = Path(paper.filename).stem + "_keypoints.md"
         output_path = output_dir / output_filename
 
+        # 构建markdown格式内容
+        from datetime import datetime
+        md_content = f"""# 论文核心要点报告
+
+## 基本信息
+
+| 项目 | 内容 |
+|------|------|
+| 论文标题 | {paper.metadata.title or paper.filename} |
+| 文件名 | `{paper.filename}` |
+| 页数 | {paper.page_count} |
+| 生成时间 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} |
+
+---
+
+"""
+
+        # 写入各个类别
+        field_names = {
+            "innovations": "🔥 核心创新点",
+            "methods": "🔧 主要方法与技术",
+            "experiments": "🧪 实验设计与评估",
+            "conclusions": "💡 主要结论",
+            "contributions": "🎯 学术贡献",
+            "limitations": "⚠️ 局限性"
+        }
+
+        for field, display_name in field_names.items():
+            md_content += f"## {display_name}\n\n"
+            items = keypoints.get(field, [])
+            if items:
+                for i, item in enumerate(items, 1):
+                    md_content += f"{i}. {item}\n"
+            else:
+                md_content += "_未提取到相关内容_\n"
+            md_content += "\n"
+
+        md_content += """---
+
+*此报告由院士级科研智能助手自动生成*
+"""
+
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(f"论文标题: {paper.metadata.title or paper.filename}\n")
-            f.write(f"文件名: {paper.filename}\n")
-            f.write(f"页数: {paper.page_count}\n")
-            f.write(f"\n{'='*60}\n\n")
-            f.write("核心要点报告\n\n")
-
-            # 写入各个类别
-            field_names = {
-                "innovations": "🔥 核心创新点",
-                "methods": "🔧 主要方法与技术",
-                "experiments": "🧪 实验设计与评估",
-                "conclusions": "💡 主要结论",
-                "contributions": "🎯 学术贡献",
-                "limitations": "⚠️ 局限性"
-            }
-
-            for field, display_name in field_names.items():
-                f.write(f"{display_name}\n")
-                items = keypoints.get(field, [])
-                if items:
-                    for i, item in enumerate(items, 1):
-                        f.write(f"  {i}. {item}\n")
-                else:
-                    f.write("  (未提取到)\n")
-                f.write("\n")
-
-            f.write(f"{'='*60}\n")
+            f.write(md_content)
 
     def batch_extract_keypoints(
         self,

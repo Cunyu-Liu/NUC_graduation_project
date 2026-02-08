@@ -1450,7 +1450,7 @@ def export_cluster_result(result_id: str):
 
 @app.route('/api/cluster/export-report', methods=['POST'])
 def export_cluster_report():
-    """导出聚类报告为文本文件"""
+    """导出聚类报告为markdown文件"""
     try:
         data = request.get_json()
         cluster_data = data.get('cluster_data')
@@ -1458,66 +1458,61 @@ def export_cluster_report():
         if not cluster_data:
             return jsonify(create_response(success=False, error="缺少聚类数据")), 400
 
-        # 生成报告内容
-        report_lines = [
-            "=" * 80,
-            "论文主题聚类分析报告",
-            "=" * 80,
-            "",
-            f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"聚类数量: {cluster_data.get('clusterCount', 0)}",
-            f"分析论文数: {len(cluster_data.get('papers', []))}",
-            "",
-            "=" * 80,
-            "各聚类详细信息",
-            "=" * 80,
-            ""
-        ]
+        # 生成markdown报告内容
+        md_content = f"""# 论文主题聚类分析报告
+
+> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+## 基本信息
+
+| 项目 | 数值 |
+|------|------|
+| 聚类数量 | {cluster_data.get('clusterCount', 0)} |
+| 分析论文数 | {len(cluster_data.get('papers', []))} |
+
+---
+
+## 各聚类详细信息
+
+"""
 
         cluster_analysis = cluster_data.get('clusterAnalysis', {})
         for cluster_id, info in cluster_analysis.items():
-            report_lines.extend([
-                f"\n聚类 {cluster_id}",
-                "-" * 80,
-                f"论文数量: {info.get('paper_count', 0)}",
-                f"核心关键词: {', '.join(info.get('top_keywords', [])[:10])}",
-                "",
-                "包含论文:",
-            ])
+            md_content += f"""### 聚类 {cluster_id}
 
-            for paper_name in info.get('papers', []):
-                report_lines.append(f"  - {paper_name}")
+| 属性 | 内容 |
+|------|------|
+| 论文数量 | {info.get('paper_count', 0)} |
+| 核心关键词 | {', '.join(info.get('top_keywords', [])[:10])} |
 
-            report_lines.extend([
-                "",
-                "代表性论文:",
-            ])
+**包含论文:**
+
+"""
+            for i, paper_name in enumerate(info.get('papers', []), 1):
+                md_content += f"{i}. {paper_name}\n"
+
+            md_content += "\n**代表性论文:**\n\n"
 
             for rep in info.get('representative_papers', []):
                 title = rep.get('title', '无标题')
                 abstract = rep.get('abstract', '无摘要')
-                report_lines.extend([
-                    f"  标题: {title}",
-                    f"  摘要: {abstract[:200]}..." if len(abstract) > 200 else f"  摘要: {abstract}",
-                    ""
-                ])
+                abstract_display = abstract[:200] + "..." if len(abstract) > 200 else abstract
+                md_content += f"- **{title}**\n  - 摘要: {abstract_display}\n\n"
 
-        report_lines.extend([
-            "",
-            "=" * 80,
-            "报告结束",
-            "=" * 80
-        ])
+        md_content += """---
 
-        report_content = "\n".join(report_lines)
+*此报告由院士级科研智能助手自动生成*
+"""
 
-        # 创建文本响应
+        # 创建markdown响应
         from flask import Response
         return Response(
-            report_content,
-            mimetype='text/plain; charset=utf-8',
+            md_content,
+            mimetype='text/markdown; charset=utf-8',
             headers={
-                'Content-Disposition': f'attachment; filename=cluster_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+                'Content-Disposition': f'attachment; filename=cluster_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md'
             }
         )
 

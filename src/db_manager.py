@@ -509,11 +509,18 @@ class DatabaseManager:
 
             relations = query.all()
 
-            # 构建图数据
+            # 构建图数据 - 完全过滤掉同年发表/same year关系
             nodes = set()
             edges = []
+            
+            # 需要过滤的关系类型（同年发表和same year）
+            filtered_relations = {'同年发表', 'same year', 'same_year', '同一年'}
 
             for rel in relations:
+                # 跳过同年发表关系
+                if rel.relation_type in filtered_relations:
+                    continue
+                    
                 nodes.add(rel.source_id)
                 nodes.add(rel.target_id)
                 edges.append({
@@ -524,8 +531,11 @@ class DatabaseManager:
                 })
 
             # 获取节点信息
-            papers = session.query(Paper).filter(Paper.id.in_(list(nodes))).all()
-            node_data = {p.id: p.to_dict() for p in papers}
+            if nodes:
+                papers = session.query(Paper).filter(Paper.id.in_(list(nodes))).all()
+                node_data = {p.id: p.to_dict() for p in papers}
+            else:
+                node_data = {}
 
             return {
                 'nodes': node_data,

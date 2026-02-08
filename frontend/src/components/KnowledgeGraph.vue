@@ -203,7 +203,7 @@ const filteredEdges = computed(() => {
 
 // 方法
 const initGraph = () => {
-  if (!svgElement.value) return
+  if (!svgElement.value || !graphContainer.value) return
 
   const container = graphContainer.value
   const width = container.clientWidth
@@ -235,10 +235,10 @@ const initGraph = () => {
     defs.append('marker')
       .attr('id', `arrow-${type}`)
       .attr('viewBox', '0 0 10 10')
-      .attr('refX', 35)  // 从25增加到35，适应更大的节点间距
+      .attr('refX', 45)  // 增加到45，适应更大的节点间距
       .attr('refY', 5)
-      .attr('markerWidth', 8)  // 稍微增大箭头
-      .attr('markerHeight', 8)
+      .attr('markerWidth', 6)  // 缩小箭头
+      .attr('markerHeight', 6)
       .attr('orient', 'auto-start-reverse')
       .append('path')
       .attr('d', 'M 0 0 L 10 5 L 0 10 z')
@@ -247,7 +247,7 @@ const initGraph = () => {
 }
 
 const updateGraph = () => {
-  if (!g) return
+  if (!g || !graphContainer.value) return
 
   // 清除之前的内容
   g.selectAll('*').remove()
@@ -280,10 +280,10 @@ const updateGraph = () => {
   simulation = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links)
       .id(d => d.id)
-      .distance(250)  // 从150增加到250，连接节点距离更远
+      .distance(350)  // 从250增加到350，连接节点距离更远
     )
     .force('charge', d3.forceManyBody()
-      .strength(-800)  // 从-400增加到-800，斥力更强，节点更分散
+      .strength(-1200)  // 从-800增加到-1200，斥力更强，节点更分散
       .distanceMin(50)  // 最小作用距离，防止节点过度聚集
       .distanceMax(800) // 最大作用距离
     )
@@ -292,23 +292,23 @@ const updateGraph = () => {
       graphContainer.value.clientHeight / 2
     ))
     .force('collision', d3.forceCollide().radius(d => {
-      // 根据节点连接数动态调整碰撞半径
+      // 根据节点连接数动态调整碰撞半径 - 减小节点大小
       const connectionCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length
-      return 60 + Math.min(connectionCount * 5, 30)  // 基础60，根据连接数增加
+      return 35 + Math.min(connectionCount * 3, 20)  // 基础35，根据连接数增加
     }))
     .force('x', d3.forceX(graphContainer.value.clientWidth / 2).strength(0.05))  // 添加水平方向弱引力
     .force('y', d3.forceY(graphContainer.value.clientHeight / 2).strength(0.05)) // 添加垂直方向弱引力
 
-  // 绘制边 - 加粗线条以适应更大的间距
+  // 绘制边 - 精简线条，更细更淡
   const linkElements = g.append('g')
     .attr('class', 'links')
     .selectAll('line')
     .data(links)
     .join('line')
     .attr('stroke', d => relationColors[d.type] || '#999')
-    .attr('stroke-width', d => Math.max(2.5, d.strength * 5 || 2.5))  // 加粗线条
+    .attr('stroke-width', d => Math.max(1.5, d.strength * 3 || 1.5))  // 变细线条
     .attr('marker-end', d => `url(#arrow-${d.type})`)
-    .attr('opacity', 0.75)
+    .attr('opacity', 0.5)  // 更淡的线条
 
   // 绘制边标签 - 优化显示
   const linkLabels = g.append('g')
@@ -338,11 +338,11 @@ const updateGraph = () => {
     )
     .on('click', (event, d) => showNodeDetail(d))
 
-  // 节点圆形 - 增大节点大小以适应更大的间距
+  // 节点圆形 - 减小节点大小以适应更大的间距
   nodeElements.append('circle')
     .attr('r', d => {
       const connectionCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length
-      return 28 + Math.min(connectionCount * 4, 20)  // 从20增加到28，节点更大
+      return 18 + Math.min(connectionCount * 2, 12)  // 从28减小到18，节点更小
     })
     .attr('fill', d => {
       const connectionCount = links.filter(l => l.source.id === d.id || l.target.id === d.id).length
@@ -350,21 +350,21 @@ const updateGraph = () => {
       return d3.interpolateBlues(0.3 + Math.min(connectionCount * 0.1, 0.5))
     })
     .attr('stroke', '#fff')
-    .attr('stroke-width', 3)  // 边框加粗
+    .attr('stroke-width', 2)  // 边框变细
     .style('cursor', 'pointer')
 
-  // 节点标签 - 调整位置，显示更多文字
+  // 节点标签 - 调整位置，精简文字显示
   nodeElements.append('text')
     .text(d => {
       const title = d.title || d.data?.title || 'Paper'
-      return title.length > 16 ? title.substring(0, 16) + '...' : title  // 从12增加到16
+      return title.length > 12 ? title.substring(0, 12) + '...' : title  // 从16减小到12
     })
     .attr('x', 0)
-    .attr('y', 45)  // 从35增加到45，适应更大的节点
+    .attr('y', 32)  // 从45减小到32，适应更小的节点
     .attr('text-anchor', 'middle')
-    .attr('font-size', '12px')  // 字体稍大
+    .attr('font-size', '10px')  // 字体稍小
     .attr('fill', '#333')
-    .attr('font-weight', '500')
+    .attr('font-weight', '400')
 
   // 更新位置
   simulation.on('tick', () => {
@@ -411,7 +411,7 @@ const showNodeDetail = (nodeData) => {
 const focusNode = (nodeId) => {
   // 缩放到指定节点
   const node = graphData.value.nodes[nodeId]
-  if (node && svg) {
+  if (node && svg && graphContainer.value) {
     const transform = d3.zoomIdentity
       .translate(
         graphContainer.value.clientWidth / 2,
@@ -452,7 +452,17 @@ const refreshGraph = async () => {
   try {
     const response = await api.getKnowledgeGraph(props.paperIds)
     if (response.success) {
-      graphData.value = response.data
+      // 过滤掉同年发表/same year关系
+      const filteredEdges = (response.data.edges || []).filter(edge => {
+        const type = edge.type || ''
+        // 完全过滤掉同年发表相关的关系
+        return !['同年发表', 'same year', 'same_year', '同一年', 'sameYear'].includes(type)
+      })
+      
+      graphData.value = {
+        nodes: response.data.nodes || {},
+        edges: filteredEdges
+      }
       console.log('[DEBUG] 获取到图谱数据:', graphData.value)
 
       // 等待DOM更新后再初始化图谱
@@ -486,7 +496,7 @@ const refreshGraph = async () => {
 
 const fitGraphToView = () => {
   // 自适应缩放，使所有节点可见
-  if (!g || !svg) return
+  if (!g || !svg || !graphContainer.value) return
   
   const nodeElements = g.selectAll('.node')
   if (nodeElements.empty()) return

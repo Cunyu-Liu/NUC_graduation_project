@@ -621,22 +621,29 @@ export default {
     const downloadResult = () => {
       const filename = (currentPaper.value.title || 'paper').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')
       if (activeTab.value === 'summary' && result.value?.summary) {
-        const blob = new Blob([result.value.summary], { type: 'text/plain;charset=utf-8' })
+        const mdContent = `# 论文摘要报告\n\n## 摘要内容\n\n${result.value.summary}\n\n---\n\n*此报告由院士级科研智能助手自动生成*\n`
+        const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${filename}_summary.txt`
+        a.download = `${filename}_summary.md`
         a.click()
         URL.revokeObjectURL(url)
       } else if (activeTab.value === 'keypoints' && result.value?.keypoints) {
-        const content = Object.entries(result.value.keypoints)
-          .map(([key, items]) => `${categoryNames[key] || key}:\n${items.map(i => `  - ${i}`).join('\n')}`)
-          .join('\n\n')
-        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+        let mdContent = '# 论文核心要点报告\n\n'
+        Object.entries(result.value.keypoints).forEach(([key, items]) => {
+          mdContent += `## ${categoryNames[key] || key}\n\n`
+          items.forEach((item, i) => {
+            mdContent += `${i + 1}. ${item}\n`
+          })
+          mdContent += '\n'
+        })
+        mdContent += '---\n\n*此报告由院士级科研智能助手自动生成*\n'
+        const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${filename}_keypoints.txt`
+        a.download = `${filename}_keypoints.md`
         a.click()
         URL.revokeObjectURL(url)
       }

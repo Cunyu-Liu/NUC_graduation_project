@@ -148,11 +148,11 @@ export default {
       responseType: 'blob'
     }).then(response => {
       // 创建下载链接
-      const blob = new Blob([response], { type: 'text/plain;charset=utf-8' })
+      const blob = new Blob([response], { type: 'text/markdown;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `cluster_report_${new Date().getTime()}.txt`
+      a.download = `cluster_report_${new Date().getTime()}.md`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
