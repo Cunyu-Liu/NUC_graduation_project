@@ -24,6 +24,9 @@
 
 - 🔄 **螺旋式知识积累** - 从文献分析到代码验证的完整闭环
 - 🚀 **高性能异步引擎** - 100篇论文并发，分析速度提升6倍
+- 🤖 **Kimi 风格 AI 聊天** - 流式输出、Markdown渲染、LaTeX公式、论文引用
+- 🔗 **LangChain 链式工作流** - SequentialChain 多步骤分析流程
+- 📊 **Milvus 向量聚类** - 基于深度学习的语义论文聚类
 - 🧠 **智能代码生成** - 6种策略自动生成可执行研究代码
 - 🌐 **知识图谱可视化** - D3.js交互式图谱，自动发现论文关联
 - 💾 **PostgreSQL持久化** - 完整的数据库ORM，支持复杂查询
@@ -51,7 +54,26 @@
 - 版本历史管理
 - AI辅助修改
 
-### 4. 研究空白管理
+### 4. AI 科研助手 (Kimi 风格)
+- 流式输出，实时响应
+- Markdown + 代码高亮 + LaTeX公式渲染
+- 论文库智能问答 (RAG)
+- 文献综述一键生成
+- 多轮对话上下文记忆
+
+### 5. 链式工作流 (LangChain)
+- SequentialChain 多步骤分析
+- 预设模板（论文分析、文献综述、代码生成）
+- 自定义节点配置
+- 可视化工作流编辑器
+
+### 6. 向量聚类 (Milvus)
+- Docker 部署 Milvus 向量数据库
+- BGE-large 模型生成语义嵌入
+- 基于语义相似度的论文聚类
+- 相似论文智能推荐
+
+### 7. 研究空白管理
 - 智能识别研究空白
 - 优先级排序（重要性+难度）
 - 一键生成代码
@@ -64,11 +86,14 @@
 ### 后端
 - **Python 3.8+** - 核心语言
 - **Flask 3.0** - Web框架
-- **PostgreSQL** - 数据库
+- **PostgreSQL** - 主数据库
+- **Milvus** - 向量数据库 (Docker 部署)
 - **SQLAlchemy 2.0** - ORM框架
+- **LangChain** - LLM 链式调用框架
 - **Redis** - 缓存层（可选）
 - **Socket.IO** - WebSocket实时通信
 - **GLM-4 API** - 智谱AI大语言模型
+- **Sentence-Transformers** - 文本嵌入模型 (BGE-large)
 
 ### 前端
 - **Vue 3** - 前端框架
@@ -88,6 +113,7 @@
 Python 3.8+
 Node.js 16+
 PostgreSQL 14+
+Docker & Docker Compose (用于 Milvus)
 Redis (可选)
 ```
 
@@ -126,7 +152,28 @@ cp .env.example .env
 # MAX_CONCURRENT - 最大并发数（默认5）
 ```
 
-### 4. 初始化数据库
+### 4. 部署 Milvus 向量数据库 (Docker)
+
+```bash
+# 创建 Milvus 目录
+mkdir -p milvus && cd milvus
+
+# 下载 Milvus 独立版配置文件
+wget https://github.com/milvus-io/milvus/releases/download/v2.3.3/milvus-standalone-docker-compose.yml -O docker-compose.yml
+
+# 启动 Milvus
+sudo docker-compose up -d
+
+# 检查 Milvus 状态
+sudo docker-compose ps
+
+# 返回项目目录
+cd ..
+```
+
+Milvus 默认会监听 `localhost:19530`。
+
+### 5. 初始化数据库
 
 ```bash
 python main.py init-db

@@ -1833,6 +1833,779 @@ def add_relation():
 
 
 # ============================================================================
+# AI 聊天 API - v4.2 增强版
+# ============================================================================
+
+# 初始化聊天引擎
+chat_engine = None
+
+def get_chat_engine_instance():
+    """获取聊天引擎实例"""
+    global chat_engine
+    if chat_engine is None:
+        from src.chat_engine import ChatEngine
+        chat_engine = ChatEngine(llm_config={
+            'model': os.getenv('LLM_MODEL', 'glm-4-plus'),
+            'api_key': os.getenv('GLM_API_KEY'),
+            'base_url': os.getenv('GLM_BASE_URL'),
+            'temperature': float(os.getenv('DEFAULT_TEMPERATURE', 0.7)),
+            'max_tokens': int(os.getenv('MAX_TOKENS', 4000))
+        })
+        chat_engine.db_manager = db
+    return chat_engine
+
+
+@app.route('/api/chat', methods=['POST'])
+@auth_required
+def chat_with_ai():
+    """AI 聊天接口（非流式）"""
+    try:
+        data = request.get_json()
+        message = data.get('message')
+        chat_id = data.get('chatId') or f"chat_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        paper_ids = data.get('papers', [])
+        model = data.get('model', 'glm-4-plus')
+        temperature = data.get('temperature', 0.7)
+        use_rag = data.get('useRag', True)
+        
+        if not message:
+            return jsonify(create_response(success=False, error="消息不能为空")), 400
+        
+        engine = get_chat_engine_instance()
+        
+        # 获取或创建上下文
+        context = engine.get_context(chat_id)
+        if not context:
+            context = engine.create_context(
+                chat_id=chat_id,
+                model=model,
+                temperature=temperature,
+                connected_papers=paper_ids
+            )
+        
+        # 执行聊天（使用 asyncio 运行异步函数）
+        result = asyncio.run(engine.chat(chat_id, message, use_rag=use_rag))
+        
+        return jsonify(create_response(
+            success=True,
+            data={
+                'content': result['content'],
+                'chatId': chat_id,
+                'timestamp': result['timestamp']
+            },
+            message="回复成功"
+        ))
+            
+    except Exception as e:
+        print(f"[ERROR] 聊天接口错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/stream', methods=['POST'])
+@auth_required
+def chat_with_ai_stream():
+    """AI 聊天接口（流式）"""
+    try:
+        data = request.get_json()
+        message = data.get('message')
+        chat_id = data.get('chatId') or f"chat_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        paper_ids = data.get('papers', [])
+        model = data.get('model', 'glm-4-plus')
+        temperature = data.get('temperature', 0.7)
+        use_rag = data.get('useRag', True)
+        
+        if not message:
+            return jsonify(create_response(success=False, error="消息不能为空")), 400
+        
+        engine = get_chat_engine_instance()
+        
+        # 获取或创建上下文
+        context = engine.get_context(chat_id)
+        if not context:
+            context = engine.create_context(
+                chat_id=chat_id,
+                model=model,
+                temperature=temperature,
+                connected_papers=paper_ids
+            )
+        
+        def generate():
+            """生成流式响应"""
+            async def stream_response():
+                async for chunk in engine.chat_stream(chat_id, message, use_rag=use_rag):
+                    yield f"data: {json.dumps({'content': chunk, 'chatId': chat_id})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'chatId': chat_id})}\n\n"
+            
+            # 运行异步生成器
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async_gen = stream_response()
+            while True:
+                try:
+                    chunk = loop.run_until_complete(async_gen.__anext__())
+                    yield chunk
+                except StopAsyncIteration:
+                    break
+            
+            loop.close()
+        
+        from flask import Response
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+            
+    except Exception as e:
+        print(f"[ERROR] 流式聊天接口错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/history', methods=['GET'])
+@auth_required
+def get_chat_history():
+    """获取聊天历史"""
+    try:
+        chat_id = request.args.get('chatId')
+        if not chat_id:
+            return jsonify(create_response(success=False, error="缺少chatId")), 400
+        
+        engine = get_chat_engine_instance()
+        history = engine.get_chat_history(chat_id)
+        
+        return jsonify(create_response(
+            success=True,
+            data=history,
+            message=f"获取到 {len(history)} 条消息"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/list', methods=['GET'])
+@auth_required
+def list_chat_sessions():
+    """获取聊天会话列表"""
+    try:
+        engine = get_chat_engine_instance()
+        chats = engine.list_chats()
+        
+        return jsonify(create_response(
+            success=True,
+            data=chats,
+            message=f"获取到 {len(chats)} 个会话"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/clear', methods=['POST'])
+@auth_required
+def clear_chat():
+    """清空聊天历史"""
+    try:
+        data = request.get_json()
+        chat_id = data.get('chatId')
+        
+        if not chat_id:
+            return jsonify(create_response(success=False, error="缺少chatId")), 400
+        
+        engine = get_chat_engine_instance()
+        engine.clear_context(chat_id)
+        
+        return jsonify(create_response(
+            success=True,
+            message="聊天历史已清空"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/delete', methods=['POST'])
+@auth_required
+def delete_chat():
+    """删除聊天会话"""
+    try:
+        data = request.get_json()
+        chat_id = data.get('chatId')
+        
+        if not chat_id:
+            return jsonify(create_response(success=False, error="缺少chatId")), 400
+        
+        engine = get_chat_engine_instance()
+        engine.delete_context(chat_id)
+        
+        return jsonify(create_response(
+            success=True,
+            message="会话已删除"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/analyze-papers', methods=['POST'])
+@auth_required
+def chat_analyze_papers():
+    """在聊天中分析论文"""
+    try:
+        data = request.get_json()
+        chat_id = data.get('chatId') or f"chat_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        paper_ids = data.get('paperIds', [])
+        analysis_type = data.get('analysisType', 'summary')
+        
+        if not paper_ids:
+            return jsonify(create_response(success=False, error="请选择要分析的论文")), 400
+        
+        engine = get_chat_engine_instance()
+        
+        def generate():
+            """生成流式响应"""
+            async def stream_response():
+                async for chunk in engine.analyze_papers(chat_id, paper_ids, analysis_type):
+                    yield f"data: {json.dumps({'content': chunk, 'chatId': chat_id})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'chatId': chat_id})}\n\n"
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async_gen = stream_response()
+            while True:
+                try:
+                    chunk = loop.run_until_complete(async_gen.__anext__())
+                    yield chunk
+                except StopAsyncIteration:
+                    break
+            
+            loop.close()
+        
+        from flask import Response
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+        
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/generate-review', methods=['POST'])
+@auth_required
+def chat_generate_review():
+    """在聊天中生成文献综述"""
+    try:
+        data = request.get_json()
+        chat_id = data.get('chatId') or f"chat_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        topic = data.get('topic', '')
+        paper_ids = data.get('paperIds', [])
+        
+        if not topic:
+            return jsonify(create_response(success=False, error="请输入研究主题")), 400
+        
+        engine = get_chat_engine_instance()
+        
+        def generate():
+            """生成流式响应"""
+            async def stream_response():
+                async for chunk in engine.generate_literature_review(chat_id, topic, paper_ids):
+                    yield f"data: {json.dumps({'content': chunk, 'chatId': chat_id})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'chatId': chat_id})}\n\n"
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async_gen = stream_response()
+            while True:
+                try:
+                    chunk = loop.run_until_complete(async_gen.__anext__())
+                    yield chunk
+                except StopAsyncIteration:
+                    break
+            
+            loop.close()
+        
+        from flask import Response
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+        
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+# ============================================================================
+# 向量数据库 API - v4.2 Milvus 集成版
+# ============================================================================
+
+# 初始化向量存储管理器
+vector_store_manager = None
+
+def get_vector_store_manager_instance():
+    """获取向量存储管理器实例"""
+    global vector_store_manager
+    if vector_store_manager is None:
+        from src.vector_store import get_vector_store_manager
+        vector_store_manager = get_vector_store_manager(db_manager=db)
+    return vector_store_manager
+
+
+@app.route('/api/vector-store/stats', methods=['GET'])
+@auth_required
+def get_vector_store_stats():
+    """获取向量存储统计信息"""
+    try:
+        manager = get_vector_store_manager_instance()
+        stats = manager.get_stats()
+        
+        return jsonify(create_response(
+            success=True,
+            data=stats,
+            message="获取成功"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/vector-store/sync', methods=['POST'])
+@auth_required
+def sync_papers_to_vector_store():
+    """同步论文到向量存储"""
+    try:
+        data = request.get_json() or {}
+        paper_ids = data.get('paper_ids', [])
+        
+        manager = get_vector_store_manager_instance()
+        
+        if not manager.is_available():
+            return jsonify(create_response(
+                success=False,
+                error="向量存储服务不可用，请检查 Milvus 连接"
+            )), 503
+        
+        # 同步论文
+        result = manager.sync_papers_from_db(paper_ids if paper_ids else None)
+        
+        if 'error' in result:
+            return jsonify(create_response(success=False, error=result['error'])), 500
+        
+        return jsonify(create_response(
+            success=True,
+            data=result,
+            message=f"同步完成: {result.get('synced', 0)} 成功, {result.get('failed', 0)} 失败"
+        ))
+    except Exception as e:
+        print(f"[ERROR] 向量存储同步错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/vector-store/search', methods=['POST'])
+@auth_required
+def search_vector_store():
+    """语义搜索论文"""
+    try:
+        data = request.get_json()
+        query = data.get('query')
+        top_k = data.get('top_k', 10)
+        
+        if not query:
+            return jsonify(create_response(success=False, error="查询内容不能为空")), 400
+        
+        manager = get_vector_store_manager_instance()
+        
+        if not manager.is_available():
+            return jsonify(create_response(
+                success=False,
+                error="向量存储服务不可用"
+            )), 503
+        
+        results = manager.search(query, top_k=top_k)
+        
+        return jsonify(create_response(
+            success=True,
+            data=[{
+                'paper_id': r.paper_id,
+                'title': r.title,
+                'abstract': r.abstract[:500] + '...' if r.abstract and len(r.abstract) > 500 else r.abstract,
+                'distance': r.distance,
+                'year': r.year,
+                'venue': r.venue
+            } for r in results],
+            message=f"找到 {len(results)} 个相关结果"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/vector-store/cluster', methods=['POST'])
+@auth_required
+def cluster_papers_vector():
+    """基于向量聚类论文"""
+    try:
+        data = request.get_json() or {}
+        n_clusters = data.get('n_clusters', 5)
+        paper_ids = data.get('paper_ids', [])
+        
+        manager = get_vector_store_manager_instance()
+        
+        if not manager.is_available():
+            return jsonify(create_response(
+                success=False,
+                error="向量存储服务不可用"
+            )), 503
+        
+        result = manager.cluster(
+            paper_ids=paper_ids if paper_ids else None,
+            n_clusters=n_clusters
+        )
+        
+        if 'error' in result:
+            return jsonify(create_response(success=False, error=result['error'])), 400
+        
+        return jsonify(create_response(
+            success=True,
+            data=result,
+            message=f"向量聚类完成，共 {result.get('n_clusters', 0)} 个类别，{result.get('total_papers', 0)} 篇论文"
+        ))
+    except Exception as e:
+        print(f"[ERROR] 向量聚类错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/vector-store/neighbors/<int:paper_id>', methods=['GET'])
+@auth_required
+def get_paper_neighbors(paper_id: int):
+    """获取相似论文"""
+    try:
+        top_k = request.args.get('top_k', 5, type=int)
+        
+        manager = get_vector_store_manager_instance()
+        
+        if not manager.is_available():
+            return jsonify(create_response(
+                success=False,
+                error="向量存储服务不可用"
+            )), 503
+        
+        neighbors = manager.find_similar(paper_id, top_k=top_k)
+        
+        return jsonify(create_response(
+            success=True,
+            data=[{
+                'paper_id': n.paper_id,
+                'title': n.title,
+                'abstract': n.abstract[:300] + '...' if n.abstract and len(n.abstract) > 300 else n.abstract,
+                'distance': n.distance,
+                'year': n.year,
+                'venue': n.venue
+            } for n in neighbors],
+            message=f"找到 {len(neighbors)} 个相似论文"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+# ============================================================================
+# 链式工作流 API - v4.2 LangChain 集成版
+# ============================================================================
+
+# 初始化工作流引擎
+workflow_engine = None
+
+def get_workflow_engine_instance():
+    """获取工作流引擎实例"""
+    global workflow_engine
+    if workflow_engine is None:
+        from src.chain_workflow import get_workflow_engine
+        workflow_engine = get_workflow_engine(llm_config={
+            'model': os.getenv('LLM_MODEL', 'glm-4-plus'),
+            'api_key': os.getenv('GLM_API_KEY'),
+            'base_url': os.getenv('GLM_BASE_URL'),
+            'temperature': float(os.getenv('DEFAULT_TEMPERATURE', 0.7)),
+            'max_tokens': int(os.getenv('MAX_TOKENS', 4000))
+        })
+    return workflow_engine
+
+
+@app.route('/api/workflow/execute', methods=['POST'])
+@auth_required
+def execute_workflow():
+    """执行链式工作流"""
+    try:
+        data = request.get_json()
+        nodes_config = data.get('nodes', [])
+        input_data = data.get('input', {})
+        
+        if not nodes_config:
+            return jsonify(create_response(success=False, error="工作流节点不能为空")), 400
+        
+        engine = get_workflow_engine_instance()
+        
+        # 构建链节点
+        from src.chain_workflow import ChainNode, NodeType
+        
+        nodes = []
+        for i, config in enumerate(nodes_config):
+            node_type = NodeType(config.get('type', 'analysis'))
+            node = ChainNode(
+                id=config.get('id') or f"node_{i}",
+                name=config.get('name', f'步骤 {i+1}'),
+                type=node_type,
+                prompt=config.get('prompt', '处理输入: {input}'),
+                model=config.get('model', 'glm-4-plus'),
+                temperature=config.get('temperature', 0.7),
+                max_tokens=config.get('maxTokens', 4000),
+                input_source=config.get('inputSource', 'previous'),
+                output_format=config.get('outputFormat', 'text'),
+                conditional=config.get('conditional', False),
+                condition=config.get('condition')
+            )
+            nodes.append(node)
+        
+        # 执行工作流
+        initial_input = input_data.get('content', '')
+        
+        # 使用 asyncio 运行异步函数
+        result = asyncio.run(engine.execute_workflow(
+            nodes=nodes,
+            initial_input=initial_input
+        ))
+        
+        if result.success:
+            return jsonify(create_response(
+                success=True,
+                data={
+                    'results': result.nodes_results,
+                    'final_output': result.final_output,
+                    'total_time': result.total_time,
+                    'total_tokens': result.total_tokens
+                },
+                message=f"工作流执行完成，耗时 {result.total_time:.2f}s"
+            ))
+        else:
+            return jsonify(create_response(
+                success=False,
+                error=result.error,
+                data={'results': result.nodes_results}
+            )), 500
+            
+    except Exception as e:
+        print(f"[ERROR] 工作流执行错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/workflow/execute-stream', methods=['POST'])
+@auth_required
+def execute_workflow_stream():
+    """执行链式工作流（流式输出）"""
+    try:
+        data = request.get_json()
+        nodes_config = data.get('nodes', [])
+        input_data = data.get('input', {})
+        
+        if not nodes_config:
+            return jsonify(create_response(success=False, error="工作流节点不能为空")), 400
+        
+        engine = get_workflow_engine_instance()
+        
+        # 构建链节点
+        from src.chain_workflow import ChainNode, NodeType
+        
+        nodes = []
+        for i, config in enumerate(nodes_config):
+            node_type = NodeType(config.get('type', 'analysis'))
+            node = ChainNode(
+                id=config.get('id') or f"node_{i}",
+                name=config.get('name', f'步骤 {i+1}'),
+                type=node_type,
+                prompt=config.get('prompt', '处理输入: {input}'),
+                model=config.get('model', 'glm-4-plus'),
+                temperature=config.get('temperature', 0.7),
+                max_tokens=config.get('maxTokens', 4000),
+                input_source=config.get('inputSource', 'previous'),
+                output_format=config.get('outputFormat', 'text')
+            )
+            nodes.append(node)
+        
+        initial_input = input_data.get('content', '')
+        
+        def generate():
+            """生成流式响应"""
+            async def stream_workflow():
+                total_steps = len(nodes)
+                current_input = initial_input
+                
+                for i, node in enumerate(nodes):
+                    # 发送进度
+                    yield f"data: {json.dumps({'type': 'progress', 'current': i+1, 'total': total_steps, 'node_name': node.name})}\n\n"
+                    
+                    # 执行节点
+                    result = await engine.execute_node(node, current_input)
+                    
+                    if result['success']:
+                        yield f"data: {json.dumps({'type': 'step_complete', 'step': i+1, 'node_name': node.name, 'output_preview': result['output'][:200]})}\n\n"
+                        current_input = result['output']
+                    else:
+                        yield f"data: {json.dumps({'type': 'error', 'step': i+1, 'error': result.get('error')})}\n\n"
+                        break
+                
+                yield f"data: {json.dumps({'type': 'complete', 'final_output': current_input})}\n\n"
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            async_gen = stream_workflow()
+            while True:
+                try:
+                    chunk = loop.run_until_complete(async_gen.__anext__())
+                    yield chunk
+                except StopAsyncIteration:
+                    break
+            
+            loop.close()
+        
+        from flask import Response
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no'
+            }
+        )
+        
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/workflow/save', methods=['POST'])
+@auth_required
+def save_workflow():
+    """保存工作流模板"""
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        description = data.get('description')
+        nodes = data.get('nodes', [])
+        
+        if not name:
+            return jsonify(create_response(success=False, error="工作流名称不能为空")), 400
+        
+        # TODO: 保存到数据库
+        # 目前先保存到内存中，后续可以持久化到数据库
+        workflow_id = f"wf_{int(datetime.now().timestamp() * 1000)}"
+        
+        # 可以保存到用户的会话或数据库中
+        
+        return jsonify(create_response(
+            success=True,
+            data={'workflow_id': workflow_id, 'name': name},
+            message="工作流保存成功"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/workflow/templates', methods=['GET'])
+@auth_required
+def get_workflow_templates():
+    """获取工作流预设模板列表"""
+    try:
+        engine = get_workflow_engine_instance()
+        templates = engine.get_preset_templates()
+        
+        # 组织成前端需要的格式
+        template_list = [
+            {
+                'id': 'summary',
+                'name': '论文深度分析链',
+                'description': '生成摘要 -> 提取要点 -> 识别研究空白',
+                'nodes': [
+                    {'type': 'analysis', 'name': '生成摘要', 'template': 'summary', 'model': 'glm-4-flash'},
+                    {'type': 'analysis', 'name': '提取要点', 'template': 'keypoints', 'model': 'glm-4-plus'},
+                    {'type': 'analysis', 'name': '识别研究空白', 'template': 'gaps', 'model': 'glm-4-plus'}
+                ]
+            },
+            {
+                'id': 'review',
+                'name': '文献综述生成链',
+                'description': '数据清洗 -> 生成综述 -> 创新性评估',
+                'nodes': [
+                    {'type': 'transform', 'name': '数据清洗', 'template': 'clean', 'model': 'glm-4-flash'},
+                    {'type': 'generation', 'name': '生成综述', 'template': 'review', 'model': 'glm-4-plus'},
+                    {'type': 'evaluation', 'name': '创新性评估', 'template': 'innovation', 'model': 'glm-4-plus'}
+                ]
+            },
+            {
+                'id': 'code',
+                'name': '代码生成与评估链',
+                'description': '生成代码 -> 质量评估 -> 方法评估',
+                'nodes': [
+                    {'type': 'generation', 'name': '生成代码', 'template': 'code', 'model': 'glm-4-plus'},
+                    {'type': 'evaluation', 'name': '质量评估', 'template': 'quality', 'model': 'glm-4-flash'},
+                    {'type': 'evaluation', 'name': '方法评估', 'template': 'method', 'model': 'glm-4-plus'}
+                ]
+            },
+            {
+                'id': 'topic',
+                'name': '主题研究链',
+                'description': '主题分析 -> 格式转换 -> 生成报告',
+                'nodes': [
+                    {'type': 'analysis', 'name': '主题分析', 'template': 'topic', 'model': 'glm-4-plus'},
+                    {'type': 'transform', 'name': '格式转换', 'template': 'format', 'model': 'glm-4-flash'},
+                    {'type': 'generation', 'name': '生成报告', 'template': 'report', 'model': 'glm-4-plus'}
+                ]
+            }
+        ]
+        
+        return jsonify(create_response(
+            success=True,
+            data=template_list,
+            message=f"获取到 {len(template_list)} 个预设模板"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/workflow/presets', methods=['GET'])
+@auth_required
+def get_workflow_presets():
+    """获取所有预设提示词模板"""
+    try:
+        engine = get_workflow_engine_instance()
+        presets = engine.get_preset_templates()
+        
+        return jsonify(create_response(
+            success=True,
+            data=presets,
+            message=f"获取到 {len(presets)} 个预设提示词"
+        ))
+    except Exception as e:
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+# ============================================================================
 # 主入口
 # ============================================================================
 

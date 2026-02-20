@@ -85,6 +85,16 @@
               <el-icon><Share /></el-icon>
               <span>知识图谱</span>
             </el-menu-item>
+
+            <el-menu-item index="/chat">
+              <el-icon><ChatDotRound /></el-icon>
+              <span>AI 助手</span>
+            </el-menu-item>
+
+            <el-menu-item index="/workflow">
+              <el-icon><Connection /></el-icon>
+              <span>链式工作流</span>
+            </el-menu-item>
           </el-menu>
         </el-aside>
 
@@ -113,7 +123,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Document, Upload, ArrowDown, User, SwitchButton,
-  HomeFilled, DataAnalysis, Folder, Search, Share
+  HomeFilled, DataAnalysis, Folder, Search, Share,
+  ChatDotRound, Connection
 } from '@element-plus/icons-vue'
 import UploadDialog from '@/components/UploadDialog.vue'
 import ProgressDialog from '@/components/ProgressDialog.vue'
@@ -124,7 +135,8 @@ export default {
     UploadDialog,
     ProgressDialog,
     Document, Upload, ArrowDown, User, SwitchButton,
-    HomeFilled, DataAnalysis, Folder, Search, Share
+    HomeFilled, DataAnalysis, Folder, Search, Share,
+    ChatDotRound, Connection
   },
   setup() {
     const store = useStore()

@@ -58,6 +58,24 @@ const routes = [
     component: () => import('@/views/Profile.vue'),
     meta: { requiresAuth: true }
   },
+  {
+    path: '/chat',
+    name: 'KimiChat',
+    component: () => import('@/views/KimiChat.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/chat-old',
+    name: 'AIChat',
+    component: () => import('@/views/AIChat.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/workflow',
+    name: 'ChainWorkflow',
+    component: () => import('@/views/ChainWorkflow.vue'),
+    meta: { requiresAuth: true }
+  },
   // 代码编辑器页面（如果有）
   {
     path: '/code-editor/:id',

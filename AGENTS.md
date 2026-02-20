@@ -1,4 +1,4 @@
-# AGENTS.md - 院士级科研智能助手 v4.1
+# AGENTS.md - 院士级科研智能助手 v4.2
 
 > 本文档面向AI编程助手，包含项目架构、开发规范和重要实现细节。
 > 项目语言：中文（注释和文档主要使用中文）
@@ -12,15 +12,18 @@
 ### 核心功能
 - 📄 智能PDF解析（支持中英文）
 - 🧠 AI摘要生成与12类要点提取（创新点、方法、实验、结论等）
+- 🤖 **Kimi 风格 AI 聊天** - 流式输出、RAG、文献综述生成
+- 🔗 **LangChain 链式工作流** - SequentialChain 多步骤分析
+- 📊 **Milvus 向量聚类** - 基于深度学习的语义聚类
 - 🔍 研究空白挖掘（5种类型）
 - 🌐 知识图谱可视化（D3.js力导向布局）
 - 💻 智能代码生成（6种策略）
-- 📊 批量论文并发处理（支持100篇）
+- 📈 批量论文并发处理（支持100篇）
 
 ### 版本信息
-- **当前版本**: v4.1.3
+- **当前版本**: v4.2.0
 - **状态**: 生产可用
-- **最后更新**: 2026-01-15
+- **最后更新**: 2026-02-20
 
 ---
 
@@ -33,9 +36,11 @@
 | Flask | 3.0+ | Web框架 |
 | SQLAlchemy | 2.0+ | ORM框架 |
 | PostgreSQL | 14+ | 主数据库 |
+| Milvus | 2.3+ | 向量数据库 |
 | Redis | 5.0+ | 缓存层（可选） |
 | Socket.IO | 5.3+ | WebSocket实时通信 |
-| LangChain | 0.2+ | LLM编排 |
+| LangChain | 0.2+ | LLM编排与链式调用 |
+| Sentence-Transformers | 2.2+ | 文本嵌入模型 |
 | GLM-4 API | - | 智谱AI大语言模型 |
 
 ### 前端技术栈
@@ -66,6 +71,9 @@ nuc_Graduation_project/
 │   ├── database.py              # 数据库模型定义（SQLAlchemy ORM）
 │   ├── db_manager.py            # 数据库管理器（CRUD操作）
 │   ├── async_workflow.py        # 异步工作流引擎
+│   ├── chain_workflow.py        # LangChain 链式工作流引擎 (v4.2)
+│   ├── chat_engine.py           # AI 聊天引擎 (v4.2)
+│   ├── vector_store.py          # Milvus 向量存储管理器 (v4.2)
 │   ├── code_generator.py        # 智能代码生成引擎
 │   ├── pdf_parser_enhanced.py   # PDF解析器
 │   ├── prompts_doctoral.py      # 博士级提示词模板
@@ -91,6 +99,9 @@ nuc_Graduation_project/
 │   │   └── views/               # 页面视图
 │   │       ├── Home.vue              # 首页
 │   │       ├── Analyze.vue           # 单篇分析
+│   │       ├── KimiChat.vue          # Kimi 风格 AI 聊天 (v4.2)
+│   │       ├── ChainWorkflow.vue     # 链式工作流 (v4.2)
+│   │       ├── Cluster.vue           # 聚类分析（含向量聚类）
 │   │       ├── Files.vue             # 文件管理
 │   │       ├── ResearchGaps.vue      # 研究空白
 │   │       ├── KnowledgeGraph.vue    # 知识图谱

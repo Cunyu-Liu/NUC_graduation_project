@@ -270,5 +270,111 @@ export default {
   updateUser: (userData) => api.put('/auth/user', userData),
 
   // 修改密码
-  changePassword: (passwords) => api.post('/auth/change-password', passwords)
+  changePassword: (passwords) => api.post('/auth/change-password', passwords),
+
+  // ============================================================================
+  // v4.2 新增API - AI 聊天 (Kimi 风格)
+  // ============================================================================
+
+  // AI 聊天（非流式）
+  chatWithAI: (data) => api.post('/chat', data),
+
+  // AI 聊天（流式）- 使用 fetch API 直接调用
+  chatStream: (data) => {
+    return fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify(data)
+    })
+  },
+
+  // 获取聊天历史
+  getChatHistory: (chatId) => api.get('/chat/history', { params: { chatId } }),
+
+  // 获取聊天会话列表
+  getChatList: () => api.get('/chat/list'),
+
+  // 清空聊天历史
+  clearChat: (data) => api.post('/chat/clear', data),
+
+  // 删除聊天会话
+  deleteChat: (data) => api.post('/chat/delete', data),
+
+  // 分析论文（流式）
+  chatAnalyzePapers: (data) => {
+    return fetch('/api/chat/analyze-papers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify(data)
+    })
+  },
+
+  // 生成文献综述（流式）
+  chatGenerateReview: (data) => {
+    return fetch('/api/chat/generate-review', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify(data)
+    })
+  },
+
+  // ============================================================================
+  // v4.2 新增API - 向量数据库
+  // ============================================================================
+
+  // 获取向量存储统计
+  getVectorStoreStats: () => api.get('/vector-store/stats'),
+
+  // 同步论文到向量存储
+  syncPapersToVectorStore: (paperIds) => api.post('/vector-store/sync', { paper_ids: paperIds }),
+
+  // 语义搜索论文
+  searchVectorStore: (query, topK = 10) => api.post('/vector-store/search', { query, top_k: topK }),
+
+  // 基于向量聚类论文
+  clusterPapersVector: (nClusters, paperIds) => api.post('/vector-store/cluster', { 
+    n_clusters: nClusters, 
+    paper_ids: paperIds 
+  }),
+
+  // 获取相似论文
+  getPaperNeighbors: (paperId, topK = 5) => 
+    api.get(`/vector-store/neighbors/${paperId}`, { params: { top_k: topK } }),
+
+  // ============================================================================
+  // v4.2 新增API - 链式工作流 (LangChain SequentialChain)
+  // ============================================================================
+
+  // 执行工作流（非流式）
+  executeWorkflow: (nodes, input) => api.post('/workflow/execute', { nodes, input }),
+
+  // 执行工作流（流式）
+  executeWorkflowStream: (nodes, input) => {
+    return fetch('/api/workflow/execute-stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ nodes, input })
+    })
+  },
+
+  // 保存工作流
+  saveWorkflow: (data) => api.post('/workflow/save', data),
+
+  // 获取工作流模板
+  getWorkflowTemplates: () => api.get('/workflow/templates'),
+
+  // 获取预设提示词模板
+  getWorkflowPresets: () => api.get('/workflow/presets')
 }

@@ -33,34 +33,90 @@
 
     <el-card class="options-card">
       <h3>聚类选项</h3>
-      <el-form :model="options" label-width="120px">
-        <el-form-item label="聚类数量">
-          <el-input-number v-model="options.nClusters" :min="2" :max="10" />
-        </el-form-item>
-        <el-form-item label="聚类方法">
-          <el-select v-model="options.method">
-            <el-option label="K-Means" value="kmeans" />
-            <el-option label="DBSCAN" value="dbscan" />
-            <el-option label="层次聚类" value="hierarchical" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="论文语言">
-          <el-select v-model="options.language">
-            <el-option label="中文" value="chinese" />
-            <el-option label="英文" value="english" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      
+      <el-tabs v-model="clusterMode">
+        <el-tab-pane label="传统聚类" name="traditional">
+          <el-form :model="options" label-width="120px">
+            <el-form-item label="聚类数量">
+              <el-input-number v-model="options.nClusters" :min="2" :max="10" />
+            </el-form-item>
+            <el-form-item label="聚类方法">
+              <el-select v-model="options.method">
+                <el-option label="K-Means" value="kmeans" />
+                <el-option label="DBSCAN" value="dbscan" />
+                <el-option label="层次聚类" value="hierarchical" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="论文语言">
+              <el-select v-model="options.language">
+                <el-option label="中文" value="chinese" />
+                <el-option label="英文" value="english" />
+              </el-select>
+            </el-form-item>
+          </el-form>
 
-      <el-button
-        type="primary"
-        size="large"
-        @click="startCluster"
-        :disabled="selectedFiles.length < 2"
-        :loading="clustering"
-      >
-        <el-icon><DataAnalysis /></el-icon> 开始聚类分析
-      </el-button>
+          <el-button
+            type="primary"
+            size="large"
+            @click="startCluster"
+            :disabled="selectedFiles.length < 2"
+            :loading="clustering"
+          >
+            <el-icon><DataAnalysis /></el-icon> 开始传统聚类分析
+          </el-button>
+        </el-tab-pane>
+        
+        <el-tab-pane label="向量聚类 (Milvus)" name="vector">
+          <div class="vector-cluster-info">
+            <el-alert
+              title="基于向量嵌入的语义聚类"
+              description="使用 Milvus 向量数据库和深度学习模型进行语义层面的论文聚类，能够捕捉论文间的深层语义关联。"
+              type="info"
+              :closable="false"
+              show-icon
+            />
+          </div>
+          
+          <el-form :model="vectorOptions" label-width="120px" style="margin-top: 16px;">
+            <el-form-item label="聚类数量">
+              <el-input-number v-model="vectorOptions.nClusters" :min="2" :max="20" />
+            </el-form-item>
+          </el-form>
+
+          <div class="vector-actions">
+            <el-button
+              type="primary"
+              size="large"
+              @click="startVectorCluster"
+              :disabled="selectedFiles.length < 2"
+              :loading="vectorClustering"
+            >
+              <el-icon><DataAnalysis /></el-icon> 开始向量聚类分析
+            </el-button>
+            
+            <el-button
+              size="large"
+              @click="syncToVectorStore"
+              :loading="syncing"
+            >
+              <el-icon><Upload /></el-icon> 同步论文到向量库
+            </el-button>
+          </div>
+          
+          <div v-if="vectorStats.total_papers > 0" class="vector-stats" style="margin-top: 16px;">
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="向量库论文数">{{ vectorStats.total_papers }}</el-descriptions-item>
+              <el-descriptions-item label="向量维度">{{ vectorStats.dimension }}</el-descriptions-item>
+              <el-descriptions-item label="集合名称">{{ vectorStats.collection_name }}</el-descriptions-item>
+              <el-descriptions-item label="连接状态">
+                <el-tag :type="vectorStats.connected ? 'success' : 'danger'">
+                  {{ vectorStats.connected ? '已连接' : '未连接' }}
+                </el-tag>
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
 
     <!-- 历史聚类结果 -->
@@ -204,7 +260,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useStore } from 'vuex'
 import api, { connectSocket } from '@/api'
 import { ElMessage } from 'element-plus'
-import { DataAnalysis, Refresh, Star, Picture as PictureIcon, Document } from '@element-plus/icons-vue'
+import { DataAnalysis, Refresh, Star, Picture as PictureIcon, Document, Upload } from '@element-plus/icons-vue'
 
 export default {
   name: 'Cluster',
@@ -213,7 +269,8 @@ export default {
     Refresh,
     Star,
     PictureIcon,
-    Document
+    Document,
+    Upload
   },
   setup() {
     const store = useStore()
@@ -231,6 +288,20 @@ export default {
     const activeClusters = ref(['0', '1', '2'])
     const showVisualization = ref(false)
     const vizCanvas = ref(null)
+
+    // 向量聚相关
+    const clusterMode = ref('traditional')
+    const vectorOptions = ref({
+      nClusters: 5
+    })
+    const vectorClustering = ref(false)
+    const syncing = ref(false)
+    const vectorStats = ref({
+      total_papers: 0,
+      dimension: 0,
+      connected: false,
+      collection_name: ''
+    })
 
     // 当前聚类结果ID
     const currentResultId = ref(null)
@@ -305,6 +376,88 @@ export default {
       saveHistory()
       currentResultId.value = null // 已保存，不需要再显示保存按钮
       ElMessage.success('聚类结果已保存到历史记录')
+    }
+
+    // 向量聚类方法
+    const loadVectorStats = async () => {
+      try {
+        const response = await api.getVectorStoreStats()
+        if (response.success) {
+          vectorStats.value = response.data
+        }
+      } catch (error) {
+        console.error('加载向量统计失败:', error)
+      }
+    }
+
+    const syncToVectorStore = async () => {
+      if (selectedFiles.value.length === 0) {
+        ElMessage.warning('请先选择要同步的论文')
+        return
+      }
+
+      syncing.value = true
+      try {
+        const paperIds = selectedFiles.value.map(f => f.id)
+        const response = await api.syncPapersToVectorStore(paperIds)
+        
+        if (response.success) {
+          ElMessage.success(`同步完成: ${response.data.synced} 成功, ${response.data.failed} 失败`)
+          await loadVectorStats()
+        } else {
+          ElMessage.error(response.error || '同步失败')
+        }
+      } catch (error) {
+        console.error('同步失败:', error)
+        ElMessage.error('同步到向量库失败')
+      } finally {
+        syncing.value = false
+      }
+    }
+
+    const startVectorCluster = async () => {
+      if (selectedFiles.value.length < 2) {
+        ElMessage.warning('请至少选择2篇论文')
+        return
+      }
+
+      vectorClustering.value = true
+      
+      try {
+        const paperIds = selectedFiles.value.map(f => f.id)
+        
+        const response = await api.clusterPapersVector(
+          vectorOptions.value.nClusters,
+          paperIds
+        )
+        
+        if (response.success) {
+          result.value = {
+            clusterCount: response.data.n_clusters,
+            clusterAnalysis: response.data.cluster_analysis,
+            papers: [],
+            method: 'kmeans_vector',
+            createdAt: new Date().toISOString(),
+            inertia: response.data.inertia
+          }
+
+          currentResultId.value = Date.now().toString()
+          
+          ElMessage.success(`向量聚类完成! 共发现 ${response.data.n_clusters} 个主题类别`)
+          
+          const clusterIds = Object.keys(response.data.cluster_analysis)
+          activeClusters.value = clusterIds.slice(0, 3)
+          
+          saveCurrentResult()
+        } else {
+          ElMessage.error(response.error || '向量聚类失败')
+        }
+      } catch (error) {
+        console.error('[ERROR] 向量聚类错误:', error)
+        ElMessage.error('向量聚类失败: ' + (error.response?.data?.error || error.message))
+      } finally {
+        vectorClustering.value = false
+      }
     }
 
     const handleSelectionChange = (selection) => {
@@ -620,6 +773,7 @@ export default {
     onMounted(() => {
       store.dispatch('fetchFiles')
       loadHistory()
+      loadVectorStats()
     })
 
     return {
@@ -634,6 +788,11 @@ export default {
       clusterHistory,
       showVisualization,
       vizCanvas,
+      clusterMode,
+      vectorOptions,
+      vectorClustering,
+      syncing,
+      vectorStats,
       handleSelectionChange,
       refreshFiles,
       formatDate,
@@ -645,7 +804,9 @@ export default {
       saveCurrentResult,
       loadHistoryResult,
       deleteHistoryResult,
-      clearHistory
+      clearHistory,
+      syncToVectorStore,
+      startVectorCluster
     }
   }
 }
@@ -762,6 +923,21 @@ h2 {
 .viz-canvas {
   max-width: 100%;
   max-height: 80vh;
+}
+
+/* 向量聚类样式 */
+.vector-cluster-info {
+  margin-bottom: 16px;
+}
+
+.vector-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.vector-stats {
+  margin-top: 16px;
 }
 
 /* 表格样式优化 */
