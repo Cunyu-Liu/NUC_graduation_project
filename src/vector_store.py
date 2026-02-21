@@ -13,7 +13,7 @@ from dataclasses import dataclass
 try:
     from pymilvus import (
         connections, Collection, CollectionSchema, FieldSchema, DataType,
-        utility, IndexType, MetricType
+        utility
     )
     MILVUS_AVAILABLE = True
 except ImportError:
@@ -535,7 +535,7 @@ class VectorStoreManager:
                 if paper:
                     papers.append(paper)
         else:
-            papers = self.db_manager.get_all_papers(limit=10000)
+            papers = self.db_manager.get_papers(limit=10000)
         
         if not papers:
             return {"error": "没有找到论文"}
