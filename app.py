@@ -1838,6 +1838,7 @@ def add_relation():
 
 # 初始化聊天引擎
 chat_engine = None
+file_processor = None
 
 def get_chat_engine_instance():
     """获取聊天引擎实例"""
@@ -1853,6 +1854,15 @@ def get_chat_engine_instance():
         })
         chat_engine.db_manager = db
     return chat_engine
+
+
+def get_file_processor_instance():
+    """获取文件处理器实例"""
+    global file_processor
+    if file_processor is None:
+        from src.file_processor import get_file_processor
+        file_processor = get_file_processor(upload_dir=os.path.join(os.getenv('OUTPUT_DIR', './output'), 'chat_uploads'))
+    return file_processor
 
 
 @app.route('/api/chat', methods=['POST'])
@@ -1915,9 +1925,11 @@ def chat_with_ai_stream():
         model = data.get('model', 'glm-4-plus')
         temperature = data.get('temperature', 0.7)
         use_rag = data.get('useRag', True)
+        use_web_search = data.get('useWebSearch', False)
+        files = data.get('files', [])  # 上传的文件内容列表
         
-        if not message:
-            return jsonify(create_response(success=False, error="消息不能为空")), 400
+        if not message and not files:
+            return jsonify(create_response(success=False, error="消息或文件不能为空")), 400
         
         engine = get_chat_engine_instance()
         
@@ -1934,7 +1946,12 @@ def chat_with_ai_stream():
         def generate():
             """生成流式响应"""
             async def stream_response():
-                async for chunk in engine.chat_stream(chat_id, message, use_rag=use_rag):
+                async for chunk in engine.chat_stream(
+                    chat_id, message or "请分析以下文件",
+                    use_rag=use_rag,
+                    use_web_search=use_web_search,
+                    files=files
+                ):
                     yield f"data: {json.dumps({'content': chunk, 'chatId': chat_id})}\n\n"
                 yield f"data: {json.dumps({'done': True, 'chatId': chat_id})}\n\n"
             
@@ -1964,6 +1981,49 @@ def chat_with_ai_stream():
             
     except Exception as e:
         print(f"[ERROR] 流式聊天接口错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify(create_response(success=False, error=str(e))), 500
+
+
+@app.route('/api/chat/upload', methods=['POST'])
+@auth_required
+def chat_upload_file():
+    """聊天文件上传接口"""
+    try:
+        if 'file' not in request.files:
+            return jsonify(create_response(success=False, error="没有文件")), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify(create_response(success=False, error="文件名为空")), 400
+        
+        # 读取文件内容
+        file_content = file.read()
+        filename = secure_filename(file.filename)
+        content_type = file.content_type or 'application/octet-stream'
+        
+        # 处理文件
+        processor = get_file_processor_instance()
+        result = processor.process_file(file_content, filename, content_type)
+        
+        return jsonify(create_response(
+            success=True,
+            data={
+                'filename': result.filename,
+                'content_type': result.content_type,
+                'size': result.size,
+                'file_hash': result.file_hash,
+                'content': result.content,
+                'metadata': result.metadata
+            },
+            message="文件上传成功"
+        ))
+        
+    except ValueError as e:
+        return jsonify(create_response(success=False, error=str(e))), 400
+    except Exception as e:
+        print(f"[ERROR] 文件上传错误: {e}")
         import traceback
         traceback.print_exc()
         return jsonify(create_response(success=False, error=str(e))), 500

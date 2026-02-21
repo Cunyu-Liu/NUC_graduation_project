@@ -29,6 +29,14 @@ try:
 except ImportError:
     VECTOR_STORE_AVAILABLE = False
 
+# 联网搜索导入
+try:
+    from src.web_search import get_search_engine, WebSearchEngine
+    WEB_SEARCH_AVAILABLE = True
+except ImportError:
+    WEB_SEARCH_AVAILABLE = False
+    WebSearchEngine = None
+
 
 class MessageType(Enum):
     """消息类型"""
@@ -143,6 +151,12 @@ class ChatEngine:
             self.vector_store = get_vector_store_manager()
         else:
             self.vector_store = None
+        
+        # 初始化搜索引擎
+        if WEB_SEARCH_AVAILABLE:
+            self.search_engine = get_search_engine()
+        else:
+            self.search_engine = None
     
     def _create_llm(self, model: Optional[str] = None) -> ChatOpenAI:
         """创建 LLM 实例"""
@@ -221,7 +235,9 @@ class ChatEngine:
                          chat_id: str,
                          message: str,
                          use_rag: bool = True,
-                         search_papers: bool = True) -> AsyncGenerator[str, None]:
+                         use_web_search: bool = False,
+                         search_papers: bool = True,
+                         files: Optional[List[Dict]] = None) -> AsyncGenerator[str, None]:
         """
         流式聊天
         
@@ -229,7 +245,9 @@ class ChatEngine:
             chat_id: 聊天ID
             message: 用户消息
             use_rag: 是否使用 RAG
+            use_web_search: 是否使用联网搜索
             search_papers: 是否搜索相关论文
+            files: 上传的文件内容列表
             
         Yields:
             流式响应片段
@@ -246,17 +264,55 @@ class ChatEngine:
         # 构建增强提示词
         enhanced_message = message
         references = []
+        context_parts = []
         
-        # RAG：检索相关论文
+        # 1. 联网搜索
+        web_search_results = []
+        if use_web_search and self.search_engine:
+            try:
+                web_search_results = self.search_engine.search(message, max_results=3)
+                if web_search_results:
+                    web_context = self.search_engine.format_results_for_llm(web_search_results)
+                    context_parts.append(web_context)
+                    print(f"🌐 联网搜索完成，找到 {len(web_search_results)} 条结果")
+            except Exception as e:
+                print(f"⚠️ 联网搜索失败: {e}")
+        
+        # 2. RAG：检索相关论文
         if use_rag and self.vector_store and self.vector_store.is_available():
             try:
-                search_results = self.vector_store.search(message, top_k=3)
+                search_results = []
+                connected_papers = context.connected_papers if context else []
+                
+                # 如果有用户指定的关联论文，优先在这些论文中搜索
+                if connected_papers:
+                    try:
+                        search_results = self.vector_store.search(
+                            message, 
+                            top_k=5,
+                            paper_ids=connected_papers
+                        )
+                        print(f"🔍 在 {len(connected_papers)} 篇关联论文中搜索，找到 {len(search_results)} 篇相关论文")
+                    except Exception as e:
+                        print(f"⚠️ 关联论文搜索失败: {e}")
+                
+                # 如果关联论文中没有找到结果，或者没有指定关联论文，则在全部论文中搜索
+                if not search_results:
+                    search_results = self.vector_store.search(message, top_k=3)
+                    print(f"🔍 在全部论文中搜索，找到 {len(search_results)} 篇相关论文")
+                
                 if search_results:
-                    context_text = "\n\n".join([
+                    # 构建上下文提示词
+                    if connected_papers:
+                        paper_header = f"【您的论文库】（优先从您关联的 {len(connected_papers)} 篇论文中检索）\n\n"
+                    else:
+                        paper_header = "【您的论文库】\n\n"
+                    
+                    paper_context = paper_header + "\n\n".join([
                         f"论文 {i+1}: {r.title}\n{r.abstract[:500]}..."
                         for i, r in enumerate(search_results)
                     ])
-                    enhanced_message = f"基于以下相关论文回答问题：\n\n{context_text}\n\n用户问题：{message}"
+                    context_parts.append(paper_context)
                     
                     references = [
                         {"paper_id": r.paper_id, "title": r.title, "distance": r.distance}
@@ -264,6 +320,30 @@ class ChatEngine:
                     ]
             except Exception as e:
                 print(f"RAG 搜索失败: {e}")
+        
+        # 3. 处理上传的文件
+        if files and len(files) > 0:
+            file_contexts = []
+            for i, file_info in enumerate(files, 1):
+                filename = file_info.get('filename', f'file_{i}')
+                content = file_info.get('content', '')
+                file_type = file_info.get('content_type', 'unknown')
+                
+                if content:
+                    file_contexts.append(
+                        f"【文件 {i}: {filename}】\n"
+                        f"类型: {file_type}\n"
+                        f"内容:\n{content[:5000]}"  # 限制每个文件长度
+                    )
+            
+            if file_contexts:
+                files_context = "【上传的文件内容】\n\n" + "\n\n---\n\n".join(file_contexts)
+                context_parts.append(files_context)
+                print(f"📎 已处理 {len(files)} 个上传文件")
+        
+        # 组合所有上下文
+        if context_parts:
+            enhanced_message = "\n\n".join(context_parts) + f"\n\n【用户问题】\n{message}"
         
         # 添加用户消息
         user_msg = ChatMessage(

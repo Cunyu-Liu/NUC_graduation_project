@@ -371,6 +371,8 @@ const messagesContainer = ref(null)
 const useRag = ref(true)
 const useWebSearch = ref(false)
 const selectedPapers = ref([])
+const uploadedFiles = ref([])  // 已上传文件列表
+const isUploading = ref(false)  // 上传中状态
 
 // 论文选择
 const showPaperSelector = ref(false)
@@ -656,7 +658,8 @@ const sendMessage = async (content = null) => {
         papers: selectedPapers.value.map(p => p.id),
         model: currentModel.value,
         temperature: settings.value.temperature,
-        useRag: useRag.value
+        useRag: useRag.value,
+        useWebSearch: useWebSearch.value
       })
     })
 
@@ -758,9 +761,67 @@ const loadSettings = () => {
   }
 }
 
-// ==================== 其他操作 ====================
+// ==================== 文件上传 ====================
 const handleUpload = () => {
-  ElMessage.info('文件上传功能开发中')
+  // 创建隐藏的文件输入
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.txt,.pdf,.doc,.docx,.md,.py,.js,.json,.java,.c,.cpp,.html,.css'
+  input.multiple = true
+  input.onchange = handleFileSelect
+  input.click()
+}
+
+const handleFileSelect = async (event) => {
+  const files = event.target.files
+  if (!files || files.length === 0) return
+  
+  isUploading.value = true
+  
+  for (const file of files) {
+    // 检查文件大小 (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      ElMessage.warning(`${file.name} 超过 10MB，已跳过`)
+      continue
+    }
+    
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      const response = await fetch('/api/chat/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: formData
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        uploadedFiles.value.push({
+          name: result.data.filename,
+          hash: result.data.file_hash,
+          content: result.data.content,
+          content_type: result.data.content_type,
+          size: result.data.size
+        })
+        ElMessage.success(`${file.name} 上传成功`)
+      } else {
+        ElMessage.error(`${file.name} 上传失败: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('上传错误:', error)
+      ElMessage.error(`${file.name} 上传失败`)
+    }
+  }
+  
+  isUploading.value = false
+}
+
+const removeFile = (index) => {
+  uploadedFiles.value.splice(index, 1)
 }
 
 // ==================== 生命周期 ====================
