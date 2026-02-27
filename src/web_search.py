@@ -55,22 +55,38 @@ class WebSearchEngine:
             url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
             
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
             }
             
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=15) as response:
+            
+            print(f"[DEBUG] 发送DuckDuckGo搜索请求: {url[:80]}...")
+            
+            with urllib.request.urlopen(req, timeout=20) as response:
                 html = response.read().decode('utf-8', errors='ignore')
             
             results = []
             
-            # 解析搜索结果
-            # DuckDuckGo HTML 结果格式
+            # 尝试多种解析模式
+            # 模式1: 标准结果格式
             result_pattern = r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>'
             snippet_pattern = r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>'
             
             titles = re.findall(result_pattern, html, re.DOTALL)
             snippets = re.findall(snippet_pattern, html, re.DOTALL)
+            
+            print(f"[DEBUG] DuckDuckGo解析: 找到{len(titles)}个标题, {len(snippets)}个摘要")
+            
+            # 如果第一种模式没找到，尝试备用模式
+            if not titles:
+                # 备用模式: 更通用的链接匹配
+                result_pattern = r'<a[^>]+href="([^"]+)"[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</a>'
+                titles = re.findall(result_pattern, html, re.DOTALL)
             
             for i, (href, title) in enumerate(titles[:max_results]):
                 # 清理 HTML 标签
@@ -83,8 +99,14 @@ class WebSearchEngine:
                     match = re.search(r'uddg=([^&]+)', href)
                     if match:
                         href = urllib.parse.unquote(match.group(1))
+                elif href.startswith('//'):
+                    href = 'https:' + href
                 
-                if clean_title and href:
+                # 过滤无效链接
+                if not href.startswith('http'):
+                    continue
+                    
+                if clean_title and href and len(clean_title) > 5:
                     results.append(SearchResult(
                         title=clean_title,
                         url=href,
@@ -92,10 +114,13 @@ class WebSearchEngine:
                         source="DuckDuckGo"
                     ))
             
+            print(f"[DEBUG] DuckDuckGo搜索完成: 返回{len(results)}条结果")
             return results
             
         except Exception as e:
             print(f"⚠️ DuckDuckGo 搜索失败: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def search_bing(self, query: str, max_results: int = 5) -> List[SearchResult]:

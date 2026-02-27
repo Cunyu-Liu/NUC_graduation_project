@@ -645,6 +645,14 @@ const sendMessage = async (content = null) => {
   isTyping.value = true
 
   try {
+    // 准备上传的文件内容
+    const filesData = uploadedFiles.value.map(file => ({
+      filename: file.name,
+      content: file.content,
+      content_type: file.content_type,
+      size: file.size
+    }))
+
     // 调用流式 API
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -659,7 +667,8 @@ const sendMessage = async (content = null) => {
         model: currentModel.value,
         temperature: settings.value.temperature,
         useRag: useRag.value,
-        useWebSearch: useWebSearch.value
+        useWebSearch: useWebSearch.value,
+        files: filesData.length > 0 ? filesData : undefined
       })
     })
 
@@ -720,12 +729,17 @@ const sendMessage = async (content = null) => {
 // ==================== 论文选择 ====================
 const loadPapers = async () => {
   try {
-    const response = await api.getPapersList({ limit: 100 })
+    const response = await api.getPapersList({ limit: 1000 })
     if (response.success) {
       papers.value = response.data.items || []
+      console.log(`[DEBUG] 加载了 ${papers.value.length} 篇论文`)
+    } else {
+      console.error('[ERROR] 加载论文失败:', response.error)
+      papers.value = []
     }
   } catch (error) {
-    console.error('加载论文失败:', error)
+    console.error('[ERROR] 加载论文失败:', error)
+    papers.value = []
   }
 }
 
@@ -736,7 +750,15 @@ const handlePaperSelectionChange = (selection) => {
 const confirmPaperSelection = () => {
   selectedPapers.value = [...tempSelectedPapers.value]
   showPaperSelector.value = false
-  ElMessage.success(`已关联 ${selectedPapers.value.length} 篇论文`)
+  
+  // 将关联论文保存到当前会话上下文
+  const chat = chatHistory.value.find(c => c.chat_id === currentChatId.value)
+  if (chat) {
+    chat.connected_papers = selectedPapers.value.map(p => p.id)
+    saveChatHistory()
+  }
+  
+  ElMessage.success(`已关联 ${selectedPapers.value.length} 篇论文，RAG将优先检索这些论文`)
 }
 
 const viewPaper = (paperId) => {
@@ -768,7 +790,13 @@ const handleUpload = () => {
   input.type = 'file'
   input.accept = '.txt,.pdf,.doc,.docx,.md,.py,.js,.json,.java,.c,.cpp,.html,.css'
   input.multiple = true
-  input.onchange = handleFileSelect
+  input.style.display = 'none'
+  input.onchange = (e) => {
+    handleFileSelect(e)
+    // 清理创建的input元素
+    document.body.removeChild(input)
+  }
+  document.body.appendChild(input)
   input.click()
 }
 
@@ -788,6 +816,8 @@ const handleFileSelect = async (event) => {
     try {
       const formData = new FormData()
       formData.append('file', file)
+      
+      ElMessage.info(`正在上传 ${file.name}...`)
       
       const response = await fetch('/api/chat/upload', {
         method: 'POST',
@@ -809,11 +839,11 @@ const handleFileSelect = async (event) => {
         })
         ElMessage.success(`${file.name} 上传成功`)
       } else {
-        ElMessage.error(`${file.name} 上传失败: ${result.error}`)
+        ElMessage.error(`${file.name} 上传失败: ${result.error || '未知错误'}`)
       }
     } catch (error) {
       console.error('上传错误:', error)
-      ElMessage.error(`${file.name} 上传失败`)
+      ElMessage.error(`${file.name} 上传失败: ${error.message || '网络错误'}`)
     }
   }
   
@@ -823,6 +853,32 @@ const handleFileSelect = async (event) => {
 const removeFile = (index) => {
   uploadedFiles.value.splice(index, 1)
 }
+
+// 监听论文选择对话框打开
+watch(showPaperSelector, async (newVal) => {
+  if (newVal) {
+    // 对话框打开时加载论文列表
+    await loadPapers()
+    
+    // 初始化已选择的论文
+    await nextTick()
+    if (paperTable.value && selectedPapers.value.length > 0) {
+      // 清空当前选择
+      paperTable.value.clearSelection()
+      
+      // 重新选中已关联的论文
+      selectedPapers.value.forEach(paper => {
+        const row = papers.value.find(p => p.id === paper.id)
+        if (row) {
+          paperTable.value.toggleRowSelection(row, true)
+        }
+      })
+    }
+    
+    // 同步tempSelectedPapers
+    tempSelectedPapers.value = [...selectedPapers.value]
+  }
+})
 
 // ==================== 生命周期 ====================
 onMounted(() => {
@@ -837,6 +893,9 @@ onMounted(() => {
     // 切换到第一个会话
     switchChat(chatHistory.value[0].chat_id)
   }
+  
+  // 检查上传按钮可用性
+  console.log('[DEBUG] KimiChat 已挂载，上传功能已就绪')
 })
 </script>
 

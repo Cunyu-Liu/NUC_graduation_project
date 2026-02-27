@@ -365,66 +365,82 @@ class MilvusVectorStore:
         Returns:
             聚类结果
         """
-        from sklearn.cluster import KMeans
+        try:
+            from sklearn.cluster import KMeans
+        except ImportError:
+            return {"error": "sklearn未安装，请运行: pip install scikit-learn"}
         
-        # 加载集合
-        self.collection.load()
-        
-        # 获取所有论文的向量
-        if paper_ids:
-            expr = f"paper_id in {paper_ids}"
-        else:
-            expr = None
-        
-        results = self.collection.query(
-            expr=expr,
-            output_fields=["paper_id", "title", "abstract", "embedding", "year", "venue"],
-            limit=10000
-        )
-        
-        if len(results) < n_clusters:
-            return {"error": f"论文数量({len(results)})少于聚类数量({n_clusters})"}
-        
-        # 提取向量
-        embeddings = np.array([r["embedding"] for r in results])
-        paper_data = [
-            {
-                "paper_id": r["paper_id"],
-                "title": r["title"],
-                "abstract": r["abstract"],
-                "year": r.get("year"),
-                "venue": r.get("venue")
-            }
-            for r in results
-        ]
-        
-        # 执行 K-Means 聚类
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(embeddings)
-        
-        # 整理聚类结果
-        clusters = {i: [] for i in range(n_clusters)}
-        for idx, label in enumerate(labels):
-            clusters[label].append(paper_data[idx])
-        
-        # 计算每个聚类的中心论文（离质心最近的）
-        cluster_analysis = {}
-        for cluster_id, papers in clusters.items():
-            if papers:
-                cluster_analysis[str(cluster_id)] = {
-                    "paper_count": len(papers),
-                    "papers": [p["title"] for p in papers],
-                    "representative_papers": papers[:3],  # 前3篇作为代表性论文
-                    "years": [p["year"] for p in papers if p.get("year")]
+        try:
+            # 加载集合
+            self.collection.load()
+            
+            # 获取所有论文的向量
+            if paper_ids:
+                expr = f"paper_id in {paper_ids}"
+            else:
+                expr = None
+            
+            print(f"[DEBUG] 向量聚类查询: expr={expr}, n_clusters={n_clusters}")
+            
+            results = self.collection.query(
+                expr=expr,
+                output_fields=["paper_id", "title", "abstract", "embedding", "year", "venue"],
+                limit=10000
+            )
+            
+            print(f"[DEBUG] 查询到 {len(results)} 篇论文")
+            
+            if len(results) < n_clusters:
+                return {"error": f"论文数量({len(results)})少于聚类数量({n_clusters})，请减少聚类数量或添加更多论文"}
+            
+            if len(results) < 2:
+                return {"error": f"至少需要2篇论文才能进行聚类，当前只有{len(results)}篇"}
+            
+            # 提取向量
+            embeddings = np.array([r["embedding"] for r in results])
+            paper_data = [
+                {
+                    "paper_id": r["paper_id"],
+                    "title": r["title"],
+                    "abstract": r["abstract"],
+                    "year": r.get("year"),
+                    "venue": r.get("venue")
                 }
-        
-        return {
-            "n_clusters": n_clusters,
-            "total_papers": len(results),
-            "method": "kmeans_vector",
-            "cluster_analysis": cluster_analysis,
-            "inertia": float(kmeans.inertia_)
-        }
+                for r in results
+            ]
+            
+            # 执行 K-Means 聚类
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            labels = kmeans.fit_predict(embeddings)
+            
+            # 整理聚类结果
+            clusters = {i: [] for i in range(n_clusters)}
+            for idx, label in enumerate(labels):
+                clusters[label].append(paper_data[idx])
+            
+            # 计算每个聚类的中心论文（离质心最近的）
+            cluster_analysis = {}
+            for cluster_id, papers in clusters.items():
+                if papers:
+                    cluster_analysis[str(cluster_id)] = {
+                        "paper_count": len(papers),
+                        "papers": [p["title"] for p in papers],
+                        "representative_papers": papers[:3],  # 前3篇作为代表性论文
+                        "years": [p["year"] for p in papers if p.get("year")]
+                    }
+            
+            return {
+                "n_clusters": n_clusters,
+                "total_papers": len(results),
+                "method": "kmeans_vector",
+                "cluster_analysis": cluster_analysis,
+                "inertia": float(kmeans.inertia_)
+            }
+        except Exception as e:
+            print(f"[ERROR] 向量聚类失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"error": f"聚类过程出错: {str(e)}"}
     
     def delete_paper(self, paper_id: int) -> bool:
         """
@@ -580,11 +596,11 @@ class VectorStoreManager:
             "total": len(papers)
         }
     
-    def search(self, query: str, top_k: int = 10) -> List[VectorSearchResult]:
+    def search(self, query: str, top_k: int = 10, paper_ids: Optional[List[int]] = None) -> List[VectorSearchResult]:
         """语义搜索"""
         if not self.is_available():
             return []
-        return self.vector_store.search(query, top_k)
+        return self.vector_store.search(query, top_k, paper_ids)
     
     def find_similar(self, paper_id: int, top_k: int = 5) -> List[VectorSearchResult]:
         """查找相似论文"""

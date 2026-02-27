@@ -237,7 +237,8 @@ class ChatEngine:
                          use_rag: bool = True,
                          use_web_search: bool = False,
                          search_papers: bool = True,
-                         files: Optional[List[Dict]] = None) -> AsyncGenerator[str, None]:
+                         files: Optional[List[Dict]] = None,
+                         connected_papers: Optional[List[int]] = None) -> AsyncGenerator[str, None]:
         """
         流式聊天
         
@@ -248,6 +249,7 @@ class ChatEngine:
             use_web_search: 是否使用联网搜索
             search_papers: 是否搜索相关论文
             files: 上传的文件内容列表
+            connected_papers: 关联的论文ID列表（覆盖上下文中的设置）
             
         Yields:
             流式响应片段
@@ -261,65 +263,90 @@ class ChatEngine:
         if not context:
             context = self.create_context(chat_id)
         
+        # 使用传入的关联论文ID或从上下文中获取
+        effective_connected_papers = connected_papers if connected_papers is not None else context.connected_papers
+        
         # 构建增强提示词
         enhanced_message = message
         references = []
         context_parts = []
         
-        # 1. 联网搜索
+        # 1. 联网搜索（优先执行，确保结果被使用）
         web_search_results = []
         if use_web_search and self.search_engine:
             try:
-                web_search_results = self.search_engine.search(message, max_results=3)
+                print(f"🔍 开始联网搜索: {message[:50]}...")
+                web_search_results = self.search_engine.search(message, max_results=5)
                 if web_search_results:
                     web_context = self.search_engine.format_results_for_llm(web_search_results)
                     context_parts.append(web_context)
                     print(f"🌐 联网搜索完成，找到 {len(web_search_results)} 条结果")
+                else:
+                    print("⚠️ 联网搜索未返回结果")
             except Exception as e:
                 print(f"⚠️ 联网搜索失败: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            if not use_web_search:
+                print("ℹ️ 联网搜索未启用")
+            elif not self.search_engine:
+                print("⚠️ 搜索引擎未初始化")
         
         # 2. RAG：检索相关论文
         if use_rag and self.vector_store and self.vector_store.is_available():
             try:
                 search_results = []
-                connected_papers = context.connected_papers if context else []
                 
                 # 如果有用户指定的关联论文，优先在这些论文中搜索
-                if connected_papers:
+                if effective_connected_papers and len(effective_connected_papers) > 0:
                     try:
+                        # 首先尝试在关联论文中搜索
                         search_results = self.vector_store.search(
                             message, 
-                            top_k=5,
-                            paper_ids=connected_papers
+                            top_k=min(10, len(effective_connected_papers)),
+                            paper_ids=effective_connected_papers
                         )
-                        print(f"🔍 在 {len(connected_papers)} 篇关联论文中搜索，找到 {len(search_results)} 篇相关论文")
+                        print(f"🔍 在 {len(effective_connected_papers)} 篇关联论文中搜索，找到 {len(search_results)} 篇相关论文")
                     except Exception as e:
                         print(f"⚠️ 关联论文搜索失败: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
-                # 如果关联论文中没有找到结果，或者没有指定关联论文，则在全部论文中搜索
-                if not search_results:
-                    search_results = self.vector_store.search(message, top_k=3)
-                    print(f"🔍 在全部论文中搜索，找到 {len(search_results)} 篇相关论文")
+                # 如果关联论文中没有找到足够结果，则在全部论文中补充搜索
+                if len(search_results) < 3:
+                    additional_results = self.vector_store.search(message, top_k=5)
+                    # 合并结果，去重
+                    existing_ids = {r.paper_id for r in search_results}
+                    for r in additional_results:
+                        if r.paper_id not in existing_ids:
+                            search_results.append(r)
+                            existing_ids.add(r.paper_id)
+                    print(f"🔍 补充搜索后共找到 {len(search_results)} 篇相关论文")
                 
                 if search_results:
                     # 构建上下文提示词
-                    if connected_papers:
-                        paper_header = f"【您的论文库】（优先从您关联的 {len(connected_papers)} 篇论文中检索）\n\n"
+                    if effective_connected_papers and len(effective_connected_papers) > 0:
+                        paper_header = f"【您的论文库】（优先从您关联的 {len(effective_connected_papers)} 篇论文中检索）\n\n"
                     else:
                         paper_header = "【您的论文库】\n\n"
                     
-                    paper_context = paper_header + "\n\n".join([
-                        f"论文 {i+1}: {r.title}\n{r.abstract[:500]}..."
-                        for i, r in enumerate(search_results)
-                    ])
+                    paper_contexts = []
+                    for i, r in enumerate(search_results[:8]):  # 最多8篇
+                        abstract = r.abstract[:800] if r.abstract else "无摘要"
+                        paper_contexts.append(f"论文 {i+1}: {r.title}\n{abstract}...")
+                    
+                    paper_context = paper_header + "\n\n".join(paper_contexts)
                     context_parts.append(paper_context)
                     
                     references = [
                         {"paper_id": r.paper_id, "title": r.title, "distance": r.distance}
-                        for r in search_results
+                        for r in search_results[:8]
                     ]
             except Exception as e:
-                print(f"RAG 搜索失败: {e}")
+                print(f"❌ RAG 搜索失败: {e}")
+                import traceback
+                traceback.print_exc()
         
         # 3. 处理上传的文件
         if files and len(files) > 0:

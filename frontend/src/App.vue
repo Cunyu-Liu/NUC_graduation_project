@@ -297,6 +297,25 @@ export default {
   background-color: #f0f2f5;
   padding: 24px;
   overflow-y: auto;
+  overflow-x: hidden;
+  height: calc(100vh - 64px);
+}
+
+/* 防止内部元素产生额外滚动条 */
+.main > * {
+  max-height: none;
+}
+
+/* 确保页面内容不会超出视口 */
+.el-container {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 侧边栏滚动控制 */
+.aside {
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* 头部右侧 */

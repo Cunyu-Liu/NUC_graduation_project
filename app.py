@@ -1667,10 +1667,20 @@ def get_statistics():
     """获取统计信息"""
     try:
         stats = db.get_statistics()
+        
+        # 适配前端期望的数据格式
+        response_data = {
+            'user_stats': {
+                'total_papers': stats.get('total_papers', 0),
+                'total_analyses': stats.get('total_analyses', 0),
+                'total_gaps': stats.get('total_gaps', 0)
+            },
+            'overview': stats
+        }
 
         return jsonify(create_response(
             success=True,
-            data=stats
+            data=response_data
         ))
     except Exception as e:
         return jsonify(create_response(success=False, error=str(e))), 500
@@ -1928,6 +1938,8 @@ def chat_with_ai_stream():
         use_web_search = data.get('useWebSearch', False)
         files = data.get('files', [])  # 上传的文件内容列表
         
+        print(f"[DEBUG] 聊天请求: chat_id={chat_id}, use_rag={use_rag}, use_web_search={use_web_search}, papers={paper_ids}")
+        
         if not message and not files:
             return jsonify(create_response(success=False, error="消息或文件不能为空")), 400
         
@@ -1942,6 +1954,10 @@ def chat_with_ai_stream():
                 temperature=temperature,
                 connected_papers=paper_ids
             )
+        else:
+            # 更新关联论文
+            if paper_ids:
+                context.connected_papers = paper_ids
         
         def generate():
             """生成流式响应"""
@@ -1950,7 +1966,8 @@ def chat_with_ai_stream():
                     chat_id, message or "请分析以下文件",
                     use_rag=use_rag,
                     use_web_search=use_web_search,
-                    files=files
+                    files=files,
+                    connected_papers=paper_ids
                 ):
                     yield f"data: {json.dumps({'content': chunk, 'chatId': chat_id})}\n\n"
                 yield f"data: {json.dumps({'done': True, 'chatId': chat_id})}\n\n"
@@ -2323,18 +2340,23 @@ def cluster_papers_vector():
         n_clusters = data.get('n_clusters', 5)
         paper_ids = data.get('paper_ids', [])
         
+        print(f"[DEBUG] 向量聚类请求: n_clusters={n_clusters}, paper_ids={paper_ids}")
+        
         manager = get_vector_store_manager_instance()
         
         if not manager.is_available():
+            print("[ERROR] 向量存储服务不可用")
             return jsonify(create_response(
                 success=False,
-                error="向量存储服务不可用"
+                error="向量存储服务不可用，请检查Milvus连接"
             )), 503
         
         result = manager.cluster(
             paper_ids=paper_ids if paper_ids else None,
             n_clusters=n_clusters
         )
+        
+        print(f"[DEBUG] 向量聚类结果: {result}")
         
         if 'error' in result:
             return jsonify(create_response(success=False, error=result['error'])), 400

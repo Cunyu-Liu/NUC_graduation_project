@@ -253,9 +253,11 @@
     <el-dialog
       v-model="showCodeDialog"
       title="生成的代码"
-      width="80%"
+      width="90%"
+      top="5vh"
       :fullscreen="isCodeFullscreen"
       class="code-dialog"
+      :style="{ maxHeight: '90vh' }"
     >
       <template #header>
         <div class="code-dialog-header">
@@ -1008,8 +1010,8 @@ onMounted(() => {
 }
 
 .code-content-wrapper {
-  max-height: 70vh;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
 }
 
 .code-meta {
@@ -1047,9 +1049,10 @@ onMounted(() => {
   font-size: 14px;
   line-height: 1.6;
   overflow-x: auto;
-  white-space: pre;
-  max-height: 400px;
-  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: none;
+  overflow-y: visible;
 }
 
 .code-docstring, .code-dependencies {
@@ -1077,7 +1080,7 @@ onMounted(() => {
   color: #606266;
   white-space: pre-wrap;
   word-wrap: break-word;
-  max-height: 200px;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: visible;
 }
 </style>

@@ -5,18 +5,26 @@
     <el-card class="select-card">
       <div class="select-header">
         <h3>选择要分析的论文（至少2篇）</h3>
-        <el-button @click="refreshFiles" size="small">
-          <el-icon><Refresh /></el-icon>
-          刷新列表
-        </el-button>
+        <div class="header-actions">
+          <el-button @click="refreshFiles" size="small">
+            <el-icon><Refresh /></el-icon>
+            刷新列表
+          </el-button>
+          <el-button type="success" @click="testVectorConnection" size="small" :loading="testingConnection">
+            <el-icon><Connection /></el-icon>
+            测试向量连接
+          </el-button>
+        </div>
       </div>
       <el-table
         :data="files"
         style="width: 100%; margin-top: 20px"
         @selection-change="handleSelectionChange"
         v-loading="loading"
+        ref="paperTable"
+        row-key="id"
       >
-        <el-table-column type="selection" width="55" />
+        <el-table-column type="selection" width="55" :reserve-selection="true" />
         <el-table-column prop="title" label="论文标题" min-width="250">
           <template #default="scope">
             {{ scope.row.title || '未命名论文' }}
@@ -28,6 +36,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="venue" label="期刊/会议" min-width="150" />
+        <el-table-column label="向量状态" width="120" align="center">
+          <template #default="scope">
+            <el-tag v-if="isPaperInVectorStore(scope.row.id)" type="success" size="small">已同步</el-tag>
+            <el-tag v-else type="info" size="small">未同步</el-tag>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 
@@ -98,8 +112,18 @@
               size="large"
               @click="syncToVectorStore"
               :loading="syncing"
+              :disabled="selectedFiles.length === 0"
             >
-              <el-icon><Upload /></el-icon> 同步论文到向量库
+              <el-icon><Upload /></el-icon> 同步选中论文到向量库
+            </el-button>
+            
+            <el-button
+              type="warning"
+              size="large"
+              @click="testVectorCluster"
+              :loading="testingCluster"
+            >
+              <el-icon><Odometer /></el-icon> 测试向量聚类
             </el-button>
           </div>
           
@@ -252,6 +276,77 @@
         <el-button type="primary" @click="downloadHighResVisualization">下载高清图</el-button>
       </template>
     </el-dialog>
+
+    <!-- 测试结果对话框 -->
+    <el-dialog
+      v-model="showTestResult"
+      title="向量聚类测试结果"
+      width="700px"
+    >
+      <div v-if="testResult" class="test-result">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="测试状态">
+            <el-tag :type="testResult.success ? 'success' : 'danger'">
+              {{ testResult.success ? '成功' : '失败' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="向量库连接">
+            <el-tag :type="testResult.connected ? 'success' : 'danger'">
+              {{ testResult.connected ? '正常' : '异常' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="集合名称">{{ testResult.collection_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="向量维度">{{ testResult.dimension || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="库中论文数">{{ testResult.total_papers || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="可聚类论文数">{{ testResult.available_papers || 0 }}</el-descriptions-item>
+        </el-descriptions>
+        
+        <div v-if="testResult.test_cluster" class="test-cluster-result" style="margin-top: 20px;">
+          <h4>测试聚类结果</h4>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="聚类数量">{{ testResult.test_cluster.n_clusters }}</el-descriptions-item>
+            <el-descriptions-item label="论文总数">{{ testResult.test_cluster.total_papers }}</el-descriptions-item>
+            <el-descriptions-item label="聚类方法">{{ testResult.test_cluster.method }}</el-descriptions-item>
+          </el-descriptions>
+          
+          <div v-if="testResult.test_cluster.cluster_analysis" class="cluster-preview" style="margin-top: 16px;">
+            <h4>聚类预览</h4>
+            <el-collapse>
+              <el-collapse-item
+                v-for="(cluster, key) in testResult.test_cluster.cluster_analysis"
+                :key="key"
+                :title="`聚类 ${parseInt(key) + 1} (${cluster.paper_count} 篇)`"
+              >
+                <p><strong>论文列表:</strong></p>
+                <ul class="preview-paper-list">
+                  <li v-for="(paper, idx) in cluster.papers.slice(0, 5)" :key="idx">{{ paper }}</li>
+                  <li v-if="cluster.papers.length > 5">... 还有 {{ cluster.papers.length - 5 }} 篇</li>
+                </ul>
+              </el-collapse-item>
+            </el-collapse>
+          </div>
+        </div>
+        
+        <el-alert
+          v-if="testResult.error"
+          :title="testResult.error"
+          type="error"
+          style="margin-top: 16px;"
+          show-icon
+        />
+        
+        <el-alert
+          v-if="testResult.message"
+          :title="testResult.message"
+          type="info"
+          style="margin-top: 16px;"
+          show-icon
+        />
+      </div>
+      <template #footer>
+        <el-button @click="showTestResult = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -260,7 +355,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useStore } from 'vuex'
 import api, { connectSocket } from '@/api'
 import { ElMessage } from 'element-plus'
-import { DataAnalysis, Refresh, Star, Picture as PictureIcon, Document, Upload } from '@element-plus/icons-vue'
+import { DataAnalysis, Refresh, Star, Picture as PictureIcon, Document, Upload, Connection, Odometer } from '@element-plus/icons-vue'
 
 export default {
   name: 'Cluster',
@@ -270,7 +365,9 @@ export default {
     Star,
     PictureIcon,
     Document,
-    Upload
+    Upload,
+    Connection,
+    Odometer
   },
   setup() {
     const store = useStore()
@@ -302,6 +399,14 @@ export default {
       connected: false,
       collection_name: ''
     })
+    const paperTable = ref(null)
+    const syncedPaperIds = ref(new Set())
+
+    // 测试相关
+    const testingConnection = ref(false)
+    const testingCluster = ref(false)
+    const showTestResult = ref(false)
+    const testResult = ref(null)
 
     // 当前聚类结果ID
     const currentResultId = ref(null)
@@ -378,6 +483,11 @@ export default {
       ElMessage.success('聚类结果已保存到历史记录')
     }
 
+    // 检查论文是否在向量库中
+    const isPaperInVectorStore = (paperId) => {
+      return syncedPaperIds.value.has(paperId)
+    }
+
     // 向量聚类方法
     const loadVectorStats = async () => {
       try {
@@ -387,6 +497,101 @@ export default {
         }
       } catch (error) {
         console.error('加载向量统计失败:', error)
+      }
+    }
+
+    // 测试向量连接
+    const testVectorConnection = async () => {
+      testingConnection.value = true
+      try {
+        const response = await api.getVectorStoreStats()
+        if (response.success) {
+          vectorStats.value = response.data
+          ElMessage.success(`向量库连接正常，包含 ${response.data.total_papers} 篇论文`)
+        } else {
+          ElMessage.error('向量库连接失败: ' + (response.error || '未知错误'))
+        }
+      } catch (error) {
+        console.error('测试连接失败:', error)
+        ElMessage.error('向量库连接测试失败: ' + (error.message || '请检查Milvus服务'))
+      } finally {
+        testingConnection.value = false
+      }
+    }
+
+    // 测试向量聚类
+    const testVectorCluster = async () => {
+      testingCluster.value = true
+      testResult.value = null
+      
+      try {
+        // 1. 首先检查向量库状态
+        const statsResponse = await api.getVectorStoreStats()
+        
+        if (!statsResponse.success) {
+          testResult.value = {
+            success: false,
+            connected: false,
+            error: '无法连接到向量库: ' + (statsResponse.error || '未知错误')
+          }
+          showTestResult.value = true
+          return
+        }
+        
+        const stats = statsResponse.data
+        
+        if (stats.total_papers < 2) {
+          testResult.value = {
+            success: false,
+            connected: true,
+            collection_name: stats.collection_name,
+            dimension: stats.dimension,
+            total_papers: stats.total_papers,
+            error: '向量库中论文数量不足，无法进行聚类测试。请先同步论文到向量库。'
+          }
+          showTestResult.value = true
+          return
+        }
+        
+        // 2. 尝试进行聚类测试
+        const testClusterCount = Math.min(3, stats.total_papers)
+        
+        ElMessage.info(`正在进行聚类测试，使用 ${stats.total_papers} 篇论文...`)
+        
+        const clusterResponse = await api.clusterPapersVector(testClusterCount)
+        
+        if (clusterResponse.success) {
+          testResult.value = {
+            success: true,
+            connected: true,
+            collection_name: stats.collection_name,
+            dimension: stats.dimension,
+            total_papers: stats.total_papers,
+            available_papers: clusterResponse.data.total_papers || stats.total_papers,
+            test_cluster: clusterResponse.data,
+            message: '向量聚类测试成功！向量库工作正常。'
+          }
+          ElMessage.success('向量聚类测试成功')
+        } else {
+          testResult.value = {
+            success: false,
+            connected: true,
+            collection_name: stats.collection_name,
+            dimension: stats.dimension,
+            total_papers: stats.total_papers,
+            error: '聚类测试失败: ' + (clusterResponse.error || '未知错误')
+          }
+        }
+      } catch (error) {
+        console.error('聚类测试失败:', error)
+        testResult.value = {
+          success: false,
+          connected: false,
+          error: '聚类测试异常: ' + (error.message || '请检查Milvus服务是否正常运行')
+        }
+      } finally {
+        testingCluster.value = false
+        showTestResult.value = true
       }
     }
 
@@ -403,6 +608,8 @@ export default {
         
         if (response.success) {
           ElMessage.success(`同步完成: ${response.data.synced} 成功, ${response.data.failed} 失败`)
+          // 更新已同步论文集合
+          paperIds.forEach(id => syncedPaperIds.value.add(id))
           await loadVectorStats()
         } else {
           ElMessage.error(response.error || '同步失败')
@@ -793,6 +1000,11 @@ export default {
       vectorClustering,
       syncing,
       vectorStats,
+      testingConnection,
+      testingCluster,
+      showTestResult,
+      testResult,
+      paperTable,
       handleSelectionChange,
       refreshFiles,
       formatDate,
@@ -806,7 +1018,10 @@ export default {
       deleteHistoryResult,
       clearHistory,
       syncToVectorStore,
-      startVectorCluster
+      startVectorCluster,
+      testVectorConnection,
+      testVectorCluster,
+      isPaperInVectorStore
     }
   }
 }
@@ -843,6 +1058,11 @@ h2 {
 .history-header h3,
 .result-header h3 {
   margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .result-actions-top {
@@ -885,6 +1105,26 @@ h2 {
   left: 0;
   color: #409eff;
   font-weight: bold;
+}
+
+.preview-paper-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.preview-paper-list li {
+  padding: 4px 0;
+  padding-left: 16px;
+  position: relative;
+  font-size: 13px;
+}
+
+.preview-paper-list li:before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #409eff;
 }
 
 .rep-paper {
@@ -934,10 +1174,23 @@ h2 {
   display: flex;
   gap: 12px;
   margin-top: 16px;
+  flex-wrap: wrap;
 }
 
 .vector-stats {
   margin-top: 16px;
+}
+
+/* 测试结果样式 */
+.test-result h4 {
+  color: #409eff;
+  margin: 16px 0 8px 0;
+}
+
+.test-cluster-result {
+  background: #f5f7fa;
+  padding: 16px;
+  border-radius: 8px;
 }
 
 /* 表格样式优化 */

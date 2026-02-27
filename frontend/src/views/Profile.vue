@@ -139,6 +139,12 @@
 
         <!-- 统计信息 -->
         <el-tab-pane label="统计信息" name="stats">
+          <div class="stats-header">
+            <h3>数据统计</h3>
+            <el-button size="small" @click="refreshStatistics" :icon="Refresh">
+              刷新
+            </el-button>
+          </div>
           <el-row :gutter="20" class="stats-row">
             <el-col :span="8">
               <el-card class="stat-card">
@@ -202,11 +208,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useStore } from 'vuex'
 import api from '@/api'
 import { ElMessage } from 'element-plus'
-import { Document, DataAnalysis, Star } from '@element-plus/icons-vue'
+import { Document, DataAnalysis, Star, Refresh } from '@element-plus/icons-vue'
 
 const store = useStore()
 const activeTab = ref('basic')
@@ -371,16 +377,54 @@ const loadStatistics = async () => {
   try {
     const response = await api.getStatistics()
     if (response.success) {
-      stats.value = response.data.user_stats || {
-        total_papers: 0,
-        total_analyses: 0,
-        total_gaps: 0
+      // 优先使用用户统计，如果没有则计算总数
+      const userStats = response.data.user_stats
+      const overview = response.data.overview
+      
+      stats.value = {
+        total_papers: userStats?.total_papers ?? overview?.total_papers ?? 0,
+        total_analyses: userStats?.total_analyses ?? overview?.total_analyses ?? 0,
+        total_gaps: userStats?.total_gaps ?? overview?.total_gaps ?? 0
+      }
+      
+      console.log('[DEBUG] 统计信息已更新:', stats.value)
+    } else {
+      // 如果API返回不成功，尝试从store获取
+      const storeStats = store.state.statistics
+      if (storeStats) {
+        stats.value = {
+          total_papers: storeStats.total_papers || 0,
+          total_analyses: storeStats.total_analyses || 0,
+          total_gaps: storeStats.total_gaps || 0
+        }
       }
     }
   } catch (error) {
     console.error('加载统计信息失败:', error)
+    // 尝试从store获取
+    const storeStats = store.state.statistics
+    if (storeStats) {
+      stats.value = {
+        total_papers: storeStats.total_papers || 0,
+        total_analyses: storeStats.total_analyses || 0,
+        total_gaps: storeStats.total_gaps || 0
+      }
+    }
   }
 }
+
+// 刷新统计数据
+const refreshStatistics = async () => {
+  await loadStatistics()
+  ElMessage.success('统计信息已刷新')
+}
+
+// 监听标签页切换，切换到统计标签时刷新数据
+watch(activeTab, (newVal) => {
+  if (newVal === 'stats') {
+    loadStatistics()
+  }
+})
 
 // 生命周期
 onMounted(() => {
@@ -388,6 +432,13 @@ onMounted(() => {
   Object.assign(editForm, userInfo.value)
   loadUserProfile()
   loadStatistics()
+  
+  // 定时刷新统计信息（每30秒）
+  setInterval(() => {
+    if (activeTab.value === 'stats') {
+      loadStatistics()
+    }
+  }, 30000)
 })
 </script>
 
@@ -465,6 +516,19 @@ onMounted(() => {
 
 .recent-activity h3 {
   margin: 0;
+  color: #303133;
+}
+
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.stats-header h3 {
+  margin: 0;
+  font-size: 18px;
   color: #303133;
 }
 </style>
