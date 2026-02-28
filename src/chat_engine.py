@@ -201,6 +201,10 @@ class ChatEngine:
                 current_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             )
         
+        # 如果有关联论文，添加系统提示词说明
+        if connected_papers and len(connected_papers) > 0:
+            system_prompt += f"\n\n【重要】用户已关联 {len(connected_papers)} 篇论文，回答问题时请优先参考这些论文的内容。关联论文ID: {connected_papers}"
+        
         context = ChatContext(
             chat_id=chat_id,
             model=model,
@@ -282,7 +286,14 @@ class ChatEngine:
                     context_parts.append(web_context)
                     print(f"🌐 联网搜索完成，找到 {len(web_search_results)} 条结果")
                 else:
-                    print("⚠️ 联网搜索未返回结果")
+                    print("⚠️ 联网搜索未返回结果，尝试备用搜索...")
+                    # 尝试更简单的查询
+                    simple_query = message[:50] if len(message) > 50 else message
+                    web_search_results = self.search_engine.search(simple_query, max_results=3)
+                    if web_search_results:
+                        web_context = self.search_engine.format_results_for_llm(web_search_results)
+                        context_parts.append(web_context)
+                        print(f"🌐 备用搜索完成，找到 {len(web_search_results)} 条结果")
             except Exception as e:
                 print(f"⚠️ 联网搜索失败: {e}")
                 import traceback
@@ -293,60 +304,100 @@ class ChatEngine:
             elif not self.search_engine:
                 print("⚠️ 搜索引擎未初始化")
         
-        # 2. RAG：检索相关论文
+        # 2. RAG：检索相关论文（优先在关联论文中搜索）
         if use_rag and self.vector_store and self.vector_store.is_available():
             try:
                 search_results = []
                 
-                # 如果有用户指定的关联论文，优先在这些论文中搜索
-                if effective_connected_papers and len(effective_connected_papers) > 0:
-                    try:
-                        # 首先尝试在关联论文中搜索
-                        search_results = self.vector_store.search(
-                            message, 
-                            top_k=min(10, len(effective_connected_papers)),
-                            paper_ids=effective_connected_papers
-                        )
-                        print(f"🔍 在 {len(effective_connected_papers)} 篇关联论文中搜索，找到 {len(search_results)} 篇相关论文")
-                    except Exception as e:
-                        print(f"⚠️ 关联论文搜索失败: {e}")
-                        import traceback
-                        traceback.print_exc()
-                
-                # 如果关联论文中没有找到足够结果，则在全部论文中补充搜索
-                if len(search_results) < 3:
-                    additional_results = self.vector_store.search(message, top_k=5)
-                    # 合并结果，去重
-                    existing_ids = {r.paper_id for r in search_results}
-                    for r in additional_results:
-                        if r.paper_id not in existing_ids:
-                            search_results.append(r)
-                            existing_ids.add(r.paper_id)
-                    print(f"🔍 补充搜索后共找到 {len(search_results)} 篇相关论文")
-                
-                if search_results:
-                    # 构建上下文提示词
+                # 首先检查向量库是否有数据
+                stats = self.vector_store.get_stats()
+                if stats.get('total_papers', 0) == 0:
+                    print("⚠️ 向量库为空，跳过RAG搜索")
+                else:
+                    # 如果有用户指定的关联论文，优先在这些论文中搜索
                     if effective_connected_papers and len(effective_connected_papers) > 0:
-                        paper_header = f"【您的论文库】（优先从您关联的 {len(effective_connected_papers)} 篇论文中检索）\n\n"
+                        try:
+                            # 首先尝试在关联论文中搜索 - 扩大搜索范围
+                            search_results = self.vector_store.search(
+                                message, 
+                                top_k=min(20, len(effective_connected_papers) * 2),  # 增加搜索数量
+                                paper_ids=effective_connected_papers
+                            )
+                            print(f"🔍 在 {len(effective_connected_papers)} 篇关联论文中优先搜索，找到 {len(search_results)} 篇相关论文")
+                            
+                            # 如果关联论文中找到的结果不够多，标记需要补充搜索
+                            need_supplement = len(search_results) < 5
+                        except Exception as e:
+                            print(f"⚠️ 关联论文搜索失败: {e}")
+                            search_results = []
+                            need_supplement = True
                     else:
-                        paper_header = "【您的论文库】\n\n"
+                        need_supplement = True
+                        print("ℹ️ 没有关联论文，将在全部论文中搜索")
                     
-                    paper_contexts = []
-                    for i, r in enumerate(search_results[:8]):  # 最多8篇
-                        abstract = r.abstract[:800] if r.abstract else "无摘要"
-                        paper_contexts.append(f"论文 {i+1}: {r.title}\n{abstract}...")
+                    # 如果关联论文中没有找到足够结果，则在全部论文中补充搜索
+                    if need_supplement:
+                        try:
+                            additional_results = self.vector_store.search(message, top_k=10)
+                            # 合并结果，去重，优先保留关联论文的结果
+                            existing_ids = {r.paper_id for r in search_results}
+                            for r in additional_results:
+                                if r.paper_id not in existing_ids:
+                                    search_results.append(r)
+                                    existing_ids.add(r.paper_id)
+                            print(f"🔍 补充搜索后共找到 {len(search_results)} 篇相关论文")
+                        except Exception as e:
+                            print(f"⚠️ 补充搜索失败: {e}")
                     
-                    paper_context = paper_header + "\n\n".join(paper_contexts)
-                    context_parts.append(paper_context)
-                    
-                    references = [
-                        {"paper_id": r.paper_id, "title": r.title, "distance": r.distance}
-                        for r in search_results[:8]
-                    ]
+                    # 构建上下文提示词
+                    if search_results:
+                        if effective_connected_papers and len(effective_connected_papers) > 0:
+                            # 区分关联论文和其他论文
+                            connected_results = [r for r in search_results if r.paper_id in effective_connected_papers]
+                            other_results = [r for r in search_results if r.paper_id not in effective_connected_papers]
+                            
+                            paper_contexts = []
+                            
+                            # 优先显示关联论文
+                            if connected_results:
+                                paper_contexts.append(f"【优先参考 - 您关联的 {len(connected_results)} 篇论文】")
+                                for i, r in enumerate(connected_results[:8]):
+                                    abstract = r.abstract[:800] if r.abstract else "无摘要"
+                                    paper_contexts.append(f"论文 {i+1}: {r.title}\n{abstract}...")
+                            
+                            # 然后显示其他相关论文
+                            if other_results:
+                                paper_contexts.append(f"\n【其他相关论文】")
+                                for i, r in enumerate(other_results[:3]):
+                                    abstract = r.abstract[:500] if r.abstract else "无摘要"
+                                    paper_contexts.append(f"论文 {i+1}: {r.title}\n{abstract}...")
+                            
+                            paper_context = "【您的论文库检索结果】\n\n" + "\n\n".join(paper_contexts)
+                        else:
+                            paper_contexts = []
+                            for i, r in enumerate(search_results[:8]):  # 最多8篇
+                                abstract = r.abstract[:800] if r.abstract else "无摘要"
+                                paper_contexts.append(f"论文 {i+1}: {r.title}\n{abstract}...")
+                            
+                            paper_context = "【您的论文库】\n\n" + "\n\n".join(paper_contexts)
+                        
+                        context_parts.append(paper_context)
+                        
+                        references = [
+                            {"paper_id": r.paper_id, "title": r.title, "distance": r.distance}
+                            for r in search_results[:8]
+                        ]
             except Exception as e:
                 print(f"❌ RAG 搜索失败: {e}")
                 import traceback
                 traceback.print_exc()
+        else:
+            if not use_rag:
+                print("ℹ️ RAG 未启用")
+            elif not self.vector_store:
+                print("⚠️ 向量存储未初始化")
+            elif not self.vector_store.is_available():
+                print("⚠️ 向量存储不可用")
         
         # 3. 处理上传的文件
         if files and len(files) > 0:
@@ -371,6 +422,7 @@ class ChatEngine:
         # 组合所有上下文
         if context_parts:
             enhanced_message = "\n\n".join(context_parts) + f"\n\n【用户问题】\n{message}"
+            print(f"[DEBUG] 增强后的消息长度: {len(enhanced_message)} 字符")
         
         # 添加用户消息
         user_msg = ChatMessage(
@@ -466,7 +518,8 @@ class ChatEngine:
                 "model": context.model,
                 "created_at": context.created_at.isoformat(),
                 "updated_at": context.updated_at.isoformat(),
-                "preview": context.messages[-1].content[:50] + "..." if context.messages else ""
+                "preview": context.messages[-1].content[:50] + "..." if context.messages else "",
+                "connected_papers": context.connected_papers
             }
             for chat_id, context in self.contexts.items()
         ]

@@ -198,7 +198,7 @@
             </button>
           </el-tooltip>
           <el-tooltip content="关联论文">
-            <button class="tool-btn" @click="showPaperSelector = true">
+            <button class="tool-btn" @click="showPaperSelector = true" :class="{ active: selectedPapers.length > 0 }">
               <el-icon><Document /></el-icon>
               <span v-if="selectedPapers.length > 0" class="badge">{{ selectedPapers.length }}</span>
             </button>
@@ -245,6 +245,27 @@
           </button>
         </div>
 
+        <!-- 已上传文件显示 -->
+        <div v-if="uploadedFiles.length > 0" class="uploaded-files">
+          <div class="uploaded-files-title">
+            <el-icon><Document /></el-icon>
+            <span>已上传 {{ uploadedFiles.length }} 个文件</span>
+          </div>
+          <div class="uploaded-files-list">
+            <el-tag
+              v-for="(file, index) in uploadedFiles"
+              :key="file.hash"
+              closable
+              size="small"
+              type="info"
+              @close="removeFile(index)"
+              class="uploaded-file-tag"
+            >
+              {{ file.name }}
+            </el-tag>
+          </div>
+        </div>
+
         <div class="input-hint">
           <span>Enter 发送，Shift + Enter 换行</span>
           <span v-if="inputMessage.length > 0">{{ inputMessage.length }} 字符</span>
@@ -255,6 +276,27 @@
     <!-- 论文选择对话框 -->
     <el-dialog v-model="showPaperSelector" title="选择关联论文" width="700px">
       <div class="paper-selector">
+        <!-- 关联论文功能说明 -->
+        <el-alert
+          title="💡 关联论文功能说明"
+          type="info"
+          :closable="false"
+          class="paper-help-alert"
+        >
+          <template #default>
+            <div class="paper-help-content">
+              <p><strong>什么是关联论文？</strong></p>
+              <p>关联论文是指在AI回答您的问题时，<strong>优先参考</strong>的论文。这可以让AI的回答更贴合您的研究内容。</p>
+              <p style="margin-top: 8px;"><strong>如何使用？</strong></p>
+              <ul>
+                <li>选择您想要重点参考的论文（可多选）</li>
+                <li>点击"确定"后，这些论文会在RAG检索时被优先搜索</li>
+                <li>发送消息时，AI会优先分析这些论文的内容来回答您的问题</li>
+              </ul>
+            </div>
+          </template>
+        </el-alert>
+
         <el-input
           v-model="paperSearch"
           placeholder="搜索论文..."
@@ -731,7 +773,8 @@ const loadPapers = async () => {
   try {
     const response = await api.getPapersList({ limit: 1000 })
     if (response.success) {
-      papers.value = response.data.items || []
+      // API 返回的 data 直接是数组，不是 { items: [...] }
+      papers.value = Array.isArray(response.data) ? response.data : (response.data.items || [])
       console.log(`[DEBUG] 加载了 ${papers.value.length} 篇论文`)
     } else {
       console.error('[ERROR] 加载论文失败:', response.error)
@@ -1574,6 +1617,61 @@ onMounted(() => {
   font-size: 12px;
   color: #9ca3af;
   margin-top: 4px;
+}
+
+/* 关联论文帮助提示 */
+.paper-help-alert {
+  margin-bottom: 16px;
+}
+
+.paper-help-content {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.paper-help-content p {
+  margin: 4px 0;
+}
+
+.paper-help-content ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.paper-help-content li {
+  margin: 2px 0;
+}
+
+/* 已上传文件显示 */
+.uploaded-files {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+
+.uploaded-files-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #166534;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.uploaded-files-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.uploaded-file-tag {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 下拉菜单危险项 */

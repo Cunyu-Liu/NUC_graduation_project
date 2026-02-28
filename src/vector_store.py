@@ -113,6 +113,12 @@ class MilvusVectorStore:
     def _connect(self):
         """连接到 Milvus 服务器"""
         try:
+            # 先断开任何现有连接
+            try:
+                connections.disconnect("default")
+            except:
+                pass
+            
             connections.connect(
                 alias="default",
                 host=self.host,
@@ -125,12 +131,25 @@ class MilvusVectorStore:
     
     def _init_collection(self):
         """初始化集合（如果不存在则创建）"""
-        if not utility.has_collection(self.COLLECTION_NAME):
-            print(f"📦 创建新集合: {self.COLLECTION_NAME}")
-            self._create_collection()
-        else:
-            print(f"📦 使用已有集合: {self.COLLECTION_NAME}")
-            self.collection = Collection(self.COLLECTION_NAME)
+        try:
+            if not utility.has_collection(self.COLLECTION_NAME):
+                print(f"📦 创建新集合: {self.COLLECTION_NAME}")
+                self._create_collection()
+            else:
+                print(f"📦 使用已有集合: {self.COLLECTION_NAME}")
+                self.collection = Collection(self.COLLECTION_NAME)
+                # 加载集合以确保可以查询
+                self.collection.load()
+        except Exception as e:
+            print(f"⚠️  初始化集合失败: {e}")
+            # 尝试重新创建集合
+            try:
+                if utility.has_collection(self.COLLECTION_NAME):
+                    utility.drop_collection(self.COLLECTION_NAME)
+                self._create_collection()
+            except Exception as e2:
+                print(f"❌ 重新创建集合失败: {e2}")
+                raise
     
     def _create_collection(self):
         """创建向量集合"""
@@ -382,6 +401,13 @@ class MilvusVectorStore:
             
             print(f"[DEBUG] 向量聚类查询: expr={expr}, n_clusters={n_clusters}")
             
+            # 首先检查集合中是否有数据
+            count = self.collection.num_entities
+            print(f"[DEBUG] 集合中共有 {count} 条记录")
+            
+            if count == 0:
+                return {"error": "向量库为空，请先同步论文到向量库"}
+            
             results = self.collection.query(
                 expr=expr,
                 output_fields=["paper_id", "title", "abstract", "embedding", "year", "venue"],
@@ -410,11 +436,13 @@ class MilvusVectorStore:
             ]
             
             # 执行 K-Means 聚类
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            # 确保 n_clusters 不超过样本数
+            actual_n_clusters = min(n_clusters, len(results))
+            kmeans = KMeans(n_clusters=actual_n_clusters, random_state=42, n_init=10)
             labels = kmeans.fit_predict(embeddings)
             
             # 整理聚类结果
-            clusters = {i: [] for i in range(n_clusters)}
+            clusters = {i: [] for i in range(actual_n_clusters)}
             for idx, label in enumerate(labels):
                 clusters[label].append(paper_data[idx])
             
@@ -430,7 +458,7 @@ class MilvusVectorStore:
                     }
             
             return {
-                "n_clusters": n_clusters,
+                "n_clusters": actual_n_clusters,
                 "total_papers": len(results),
                 "method": "kmeans_vector",
                 "cluster_analysis": cluster_analysis,

@@ -4,6 +4,7 @@
 import os
 import json
 import asyncio
+import re
 from typing import List, Dict, Any, Optional, Callable, Union
 from dataclasses import dataclass, field
 from enum import Enum
@@ -89,7 +90,7 @@ PRESET_TEMPLATES = {
 3. 突出创新点
 
 论文内容：
-{input}
+{{input}}
 
 请生成摘要："""
     },
@@ -105,7 +106,7 @@ PRESET_TEMPLATES = {
 6. 未来工作
 
 论文内容：
-{input}
+{{input}}
 
 请以JSON格式输出要点。"""
     },
@@ -122,7 +123,7 @@ PRESET_TEMPLATES = {
 - 评估空白：评估指标的不足
 
 论文内容：
-{input}
+{{input}}
 
 请列出发现的研究空白，并说明其重要性和潜在解决方向。"""
     },
@@ -138,7 +139,7 @@ PRESET_TEMPLATES = {
 4. 评估该主题的研究热度
 
 论文内容：
-{input}
+{{input}}
 
 请提供详细分析。"""
     },
@@ -155,7 +156,7 @@ PRESET_TEMPLATES = {
 4. 使用标准库和常用深度学习框架
 
 论文描述：
-{input}
+{{input}}
 
 请生成代码（包含必要的说明文档）："""
     },
@@ -172,7 +173,7 @@ PRESET_TEMPLATES = {
 5. 建议与展望
 
 内容：
-{input}
+{{input}}
 
 请生成完整的Markdown格式报告。"""
     },
@@ -189,7 +190,7 @@ PRESET_TEMPLATES = {
 5. 未来研究方向
 
 论文内容：
-{input}
+{{input}}
 
 请生成综合性文献综述。"""
     },
@@ -207,7 +208,7 @@ PRESET_TEMPLATES = {
 5. 完整性：研究的完整度
 
 内容：
-{input}
+{{input}}
 
 请提供详细评估报告，包括总分和各项得分。"""
     },
@@ -224,7 +225,7 @@ PRESET_TEMPLATES = {
 5. 创新点的潜在影响
 
 内容：
-{input}
+{{input}}
 
 请提供创新性评估报告。"""
     },
@@ -242,7 +243,7 @@ PRESET_TEMPLATES = {
 6. 可复现性
 
 方法描述：
-{input}
+{{input}}
 
 请提供详细的方法论评估。"""
     },
@@ -260,7 +261,7 @@ PRESET_TEMPLATES = {
 5. 按逻辑重新组织
 
 原始数据：
-{input}
+{{input}}
 
 请输出清洗后的结构化数据。"""
     },
@@ -276,7 +277,7 @@ PRESET_TEMPLATES = {
 3. 保持信息完整性
 
 内容：
-{input}
+{{input}}
 
 请输出转换后的JSON格式数据。"""
     }
@@ -311,6 +312,38 @@ class ChainWorkflowEngine:
             request_timeout=120
         )
     
+    def _replace_variables(self, prompt: str, variables: Dict[str, str]) -> str:
+        """
+        替换提示词中的变量
+        
+        支持两种格式：
+        - {{variable}} - 双花括号格式（推荐）
+        - {variable} - 单花括号格式（兼容旧模板）
+        
+        Args:
+            prompt: 原始提示词
+            variables: 变量字典
+            
+        Returns:
+            替换后的提示词
+        """
+        result = prompt
+        
+        # 首先处理双花括号格式 {{variable}}
+        for key, value in variables.items():
+            placeholder = f"{{{{{key}}}}}"
+            if placeholder in result:
+                result = result.replace(placeholder, str(value))
+        
+        # 然后处理单花括号格式 {variable}
+        # 注意：要避免替换已经处理过的双花括号格式
+        for key, value in variables.items():
+            # 使用正则表达式匹配单花括号，但不匹配双花括号
+            pattern = r'(?<!\{)\{' + re.escape(key) + r'\}(?!\})'
+            result = re.sub(pattern, str(value), result)
+        
+        return result
+    
     def create_node(self, template_key: str, custom_prompt: Optional[str] = None,
                    model: str = "glm-4-plus", temperature: float = 0.7) -> ChainNode:
         """
@@ -339,13 +372,15 @@ class ChainWorkflowEngine:
             temperature=temperature
         )
     
-    async def execute_node(self, node: ChainNode, input_text: str) -> Dict[str, Any]:
+    async def execute_node(self, node: ChainNode, input_text: str,
+                          variables: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         执行单个链节点
         
         Args:
             node: 链节点
             input_text: 输入文本
+            variables: 额外的变量字典（用于多变量替换）
             
         Returns:
             执行结果
@@ -356,20 +391,33 @@ class ChainWorkflowEngine:
         node.status = NodeStatus.RUNNING
         
         try:
+            # 准备变量字典
+            all_variables = {"input": input_text}
+            if variables:
+                all_variables.update(variables)
+            
+            # 替换提示词中的变量
+            processed_prompt = self._replace_variables(node.prompt, all_variables)
+            
+            print(f"[DEBUG] 节点 '{node.name}' 处理后的提示词前200字符: {processed_prompt[:200]}...")
+            
             # 创建 LLM 实例
             llm = self._create_llm(node.model, node.temperature)
             
-            # 创建提示词模板
-            prompt_template = PromptTemplate(
-                input_variables=["input"],
-                template=node.prompt
-            )
+            # 创建提示词模板 - 使用简单的字符串模板，不再使用变量系统
+            # 因为变量已经在上面手动替换过了
+            from langchain_core.prompts import ChatPromptTemplate
+            
+            prompt_template = ChatPromptTemplate.from_messages([
+                ("system", "你是一个专业的科研助手。"),
+                ("human", processed_prompt)
+            ])
             
             # 创建链
             chain = prompt_template | llm | StrOutputParser()
             
-            # 执行
-            result = await asyncio.to_thread(chain.invoke, {"input": input_text})
+            # 执行（不需要再传递变量，因为已经替换过了）
+            result = await asyncio.to_thread(chain.invoke, {})
             
             # 更新节点状态
             node.status = NodeStatus.COMPLETED
@@ -387,6 +435,9 @@ class ChainWorkflowEngine:
             node.status = NodeStatus.ERROR
             node.error = str(e)
             node.execution_time = time.time() - start_time
+            
+            import traceback
+            traceback.print_exc()
             
             return {
                 "success": False,
@@ -412,7 +463,12 @@ class ChainWorkflowEngine:
         
         start_time = time.time()
         results = []
-        current_input = initial_input
+        
+        # 用于存储每个节点的输出，供后续节点引用
+        node_outputs = {
+            "original": initial_input,  # 原始输入
+            "input": initial_input      # 当前输入（会不断更新）
+        }
         
         total_nodes = len(nodes)
         
@@ -441,17 +497,29 @@ class ChainWorkflowEngine:
                 })
             
             # 确定输入源
+            current_input = initial_input
             if node.input_source == "original":
                 current_input = initial_input
-            elif node.input_source != "previous" and node.input_source:
+            elif node.input_source == "previous":
+                # 使用上一个节点的输出
+                if idx > 0 and nodes[idx-1].output:
+                    current_input = nodes[idx-1].output
+            elif node.input_source and node.input_source in node_outputs:
                 # 从指定节点获取输出
-                for prev_result in results:
-                    if prev_result.get("node_id") == node.input_source:
-                        current_input = prev_result.get("output", current_input)
-                        break
+                current_input = node_outputs[node.input_source]
+            
+            # 准备变量字典（包含之前所有节点的输出）
+            variables = {
+                "original": initial_input,
+                "input": current_input
+            }
+            # 添加每个节点的输出，使用 step1, step2 等格式
+            for i, prev_node in enumerate(nodes[:idx]):
+                if prev_node.output:
+                    variables[f"step{i+1}"] = prev_node.output
             
             # 执行节点
-            result = await self.execute_node(node, current_input)
+            result = await self.execute_node(node, current_input, variables)
             
             result_info = {
                 "node_id": node.id,
@@ -467,6 +535,10 @@ class ChainWorkflowEngine:
             
             results.append(result_info)
             
+            # 保存节点输出
+            node_outputs[node.id] = node.output or ""
+            node_outputs["input"] = node.output or current_input
+            
             # 如果出错，停止执行
             if not result["success"]:
                 return WorkflowResult(
@@ -475,17 +547,14 @@ class ChainWorkflowEngine:
                     error=node.error,
                     total_time=time.time() - start_time
                 )
-            
-            # 更新当前输入为当前节点的输出
-            if node.output:
-                current_input = node.output
         
         total_time = time.time() - start_time
+        final_output = nodes[-1].output if nodes else initial_input
         
         return WorkflowResult(
             success=True,
             nodes_results=results,
-            final_output=current_input,
+            final_output=final_output,
             total_time=total_time,
             total_tokens=sum(node.tokens_used for node in nodes)
         )
