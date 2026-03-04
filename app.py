@@ -1935,10 +1935,9 @@ def chat_with_ai_stream():
         model = data.get('model', 'glm-4-plus')
         temperature = data.get('temperature', 0.7)
         use_rag = data.get('useRag', True)
-        use_web_search = data.get('useWebSearch', False)
         files = data.get('files', [])  # 上传的文件内容列表
         
-        print(f"[DEBUG] 聊天请求: chat_id={chat_id}, use_rag={use_rag}, use_web_search={use_web_search}, papers={paper_ids}")
+        print(f"[DEBUG] 聊天请求: chat_id={chat_id}, use_rag={use_rag}, papers={paper_ids}")
         
         if not message and not files:
             return jsonify(create_response(success=False, error="消息或文件不能为空")), 400
@@ -1965,7 +1964,6 @@ def chat_with_ai_stream():
                 async for chunk in engine.chat_stream(
                     chat_id, message or "请分析以下文件",
                     use_rag=use_rag,
-                    use_web_search=use_web_search,
                     files=files,
                     connected_papers=paper_ids
                 ):
@@ -2359,7 +2357,13 @@ def cluster_papers_vector():
         print(f"[DEBUG] 向量聚类结果: {result}")
         
         if 'error' in result:
-            return jsonify(create_response(success=False, error=result['error'])), 400
+            # 业务逻辑错误返回200，但 success=False
+            # 这样前端能正常接收错误信息
+            return jsonify(create_response(
+                success=False, 
+                error=result['error'],
+                data={"code": result.get('code', 'UNKNOWN'), "suggested_clusters": result.get('suggested_clusters')}
+            ))
         
         return jsonify(create_response(
             success=True,

@@ -115,7 +115,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['build'])
+// const emit = defineEmits(['build'])
 
 // 响应式数据
 const loading = ref(false)

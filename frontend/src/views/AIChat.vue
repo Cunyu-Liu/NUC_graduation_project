@@ -205,7 +205,6 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted } from 'vue'
-import { useStore } from 'vuex'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Fold, Expand, ChatLineRound, MoreFilled,
@@ -214,8 +213,6 @@ import {
 } from '@element-plus/icons-vue'
 import ChatMessage from '@/components/ChatMessage.vue'
 import api from '@/api'
-
-const store = useStore()
 
 // 状态
 const sidebarCollapsed = ref(false)

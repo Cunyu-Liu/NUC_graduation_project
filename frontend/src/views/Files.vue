@@ -231,7 +231,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Search, VideoPlay, DataAnalysis, Download, Delete, Edit, Refresh, List, Close } from '@element-plus/icons-vue'
+import { Check, Search, VideoPlay, DataAnalysis, Delete, Edit, Refresh, List, Close } from '@element-plus/icons-vue'
 import api from '@/api'
 
 const store = useStore()

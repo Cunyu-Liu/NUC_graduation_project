@@ -158,7 +158,7 @@ export default {
       store.commit('SHOW_UPLOAD_DIALOG', true)
     }
 
-    const handleFileUploaded = (file) => {
+    const handleFileUploaded = () => {
       store.dispatch('fetchFiles')
     }
 

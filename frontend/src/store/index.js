@@ -108,7 +108,7 @@ export default createStore({
       }
     },
 
-    async deleteFile({ commit, dispatch }, paperId) {
+    async deleteFile({ commit }, paperId) {
       try {
         const response = await api.deletePaper(paperId)
         if (response.success) {

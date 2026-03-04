@@ -96,45 +96,41 @@
           />
         </div>
         
-        <div
-          v-for="(node, index) in chainNodes"
-          :key="node.id"
-          class="chain-node"
-          :class="{ 
-            'active': currentNode?.id === node.id,
-            'completed': node.status === 'completed',
-            'running': node.status === 'running',
-            'error': node.status === 'error'
-          }"
-          @click="selectNode(node)"
-        >
-          <div class="node-index">{{ index + 1 }}</div>
-          <div class="node-info">
-            <div class="node-name">{{ node.name }}</div>
-            <div class="node-type">{{ getNodeTypeLabel(node.type) }}</div>
-          </div>
-          <div class="node-status">
-            <el-icon v-if="node.status === 'completed'" class="status-icon success"><CircleCheck /></el-icon>
-            <el-icon v-else-if="node.status === 'running'" class="status-icon running"><Loading /></el-icon>
-            <el-icon v-else-if="node.status === 'error'" class="status-icon error"><CircleClose /></el-icon>
-            <el-icon v-else class="status-icon pending"><Timer /></el-icon>
-          </div>
-          <div class="node-actions">
-            <el-icon class="action-btn" @click.stop="moveNode(index, -1)" v-if="index > 0"><ArrowUp /></el-icon>
-            <el-icon class="action-btn" @click.stop="moveNode(index, 1)" v-if="index < chainNodes.length - 1"><ArrowDown /></el-icon>
-            <el-icon class="action-btn delete" @click.stop="removeNode(index)"><Delete /></el-icon>
-          </div>
-        </div>
-
-        <!-- 连接箭头 -->
-        <div class="chain-connections" v-if="chainNodes.length > 1">
-          <div
-            v-for="i in chainNodes.length - 1"
-            :key="i"
-            class="connection-line"
-          >
-            <el-icon><Bottom /></el-icon>
-          </div>
+        <div class="nodes-container">
+          <template v-for="(node, index) in chainNodes" :key="node.id">
+            <!-- 连接箭头（除第一个节点外） -->
+            <div v-if="index > 0" class="chain-arrow">
+              <el-icon><Bottom /></el-icon>
+            </div>
+            
+            <div
+              class="chain-node"
+              :class="{ 
+                'active': currentNode?.id === node.id,
+                'completed': node.status === 'completed',
+                'running': node.status === 'running',
+                'error': node.status === 'error'
+              }"
+              @click="selectNode(node)"
+            >
+              <div class="node-index">{{ index + 1 }}</div>
+              <div class="node-info">
+                <div class="node-name">{{ node.name }}</div>
+                <div class="node-type">{{ getNodeTypeLabel(node.type) }}</div>
+              </div>
+              <div class="node-status">
+                <el-icon v-if="node.status === 'completed'" class="status-icon success"><CircleCheck /></el-icon>
+                <el-icon v-else-if="node.status === 'running'" class="status-icon running"><Loading /></el-icon>
+                <el-icon v-else-if="node.status === 'error'" class="status-icon error"><CircleClose /></el-icon>
+                <el-icon v-else class="status-icon pending"><Timer /></el-icon>
+              </div>
+              <div class="node-actions">
+                <el-icon class="action-btn" @click.stop="moveNode(index, -1)" v-if="index > 0"><ArrowUp /></el-icon>
+                <el-icon class="action-btn" @click.stop="moveNode(index, 1)" v-if="index < chainNodes.length - 1"><ArrowDown /></el-icon>
+                <el-icon class="action-btn delete" @click.stop="removeNode(index)"><Delete /></el-icon>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -358,7 +354,7 @@
           导出结果
         </el-button>
         <el-button type="primary" @click="saveWorkflow">
-          <el-icon><Save /></el-icon>
+          <el-icon><Download /></el-icon>
           保存工作流
         </el-button>
       </div>
@@ -464,7 +460,7 @@ import {
   Plus, VideoPlay, Refresh, ArrowUp, ArrowDown, Delete,
   CircleCheck, CircleClose, Loading, Timer, Bottom,
   ArrowRight, QuestionFilled, Document, Reading, Cpu, DataAnalysis,
-  Download, Save
+  Download
 } from '@element-plus/icons-vue'
 import api from '@/api'
 
@@ -586,8 +582,6 @@ const addNode = () => {
     return
   }
   
-  const template = availableTemplates.find(t => t.value === newNode.value.template)
-  
   const node = {
     id: Date.now(),
     name: newNode.value.name,
@@ -684,8 +678,6 @@ const executeChain = async () => {
   executionProgress.value = 0
   executionStatus.value = ''
   executionResults.value = []
-  
-  const startTime = Date.now()
   
   try {
     // 重置所有节点状态
@@ -1038,11 +1030,25 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 12px;
-  position: relative;
 }
 
 .nodes-hint {
   margin-bottom: 12px;
+}
+
+.nodes-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chain-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+  color: #c0c4cc;
+  font-size: 16px;
 }
 
 .chain-node {
@@ -1173,20 +1179,7 @@ onMounted(() => {
   color: #f56c6c;
 }
 
-.chain-connections {
-  position: absolute;
-  left: 32px;
-  top: 80px;
-  display: flex;
-  flex-direction: column;
-  gap: 44px;
-  pointer-events: none;
-  color: #c0c4cc;
-}
 
-.connection-line {
-  font-size: 16px;
-}
 
 .panel-footer {
   padding: 16px 20px;

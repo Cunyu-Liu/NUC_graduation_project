@@ -213,16 +213,6 @@
               <span>RAG</span>
             </button>
           </el-tooltip>
-          <el-tooltip content="网络搜索">
-            <button
-              class="tool-btn"
-              :class="{ active: useWebSearch }"
-              @click="useWebSearch = !useWebSearch"
-            >
-              <el-icon><Globe /></el-icon>
-              <span>联网</span>
-            </button>
-          </el-tooltip>
         </div>
 
         <div class="input-box">
@@ -380,7 +370,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Fold, Expand, ChatLineRound, MoreFilled, Setting,
   Document, Delete, ChatDotRound, Cpu, Paperclip, Search,
-  Globe, Promotion, Loading, Edit
+  Promotion, Loading, Edit
 } from '@element-plus/icons-vue'
 import api from '@/api'
 import { marked } from 'marked'
@@ -411,7 +401,6 @@ const isTyping = ref(false)
 const currentModel = ref('glm-4-plus')
 const messagesContainer = ref(null)
 const useRag = ref(true)
-const useWebSearch = ref(false)
 const selectedPapers = ref([])
 const uploadedFiles = ref([])  // 已上传文件列表
 const isUploading = ref(false)  // 上传中状态
@@ -709,7 +698,6 @@ const sendMessage = async (content = null) => {
         model: currentModel.value,
         temperature: settings.value.temperature,
         useRag: useRag.value,
-        useWebSearch: useWebSearch.value,
         files: filesData.length > 0 ? filesData : undefined
       })
     })
@@ -1603,6 +1591,12 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
+}
+
+.dialog-footer > div {
+  display: flex;
+  gap: 12px;
 }
 
 .paper-selector {

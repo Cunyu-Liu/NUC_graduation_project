@@ -26,7 +26,7 @@ try:
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
-    print("⚠️  sentence-transformers 未安装，将使用 API 生成 embedding")
+    # 静默处理，避免重复警告
 
 
 @dataclass
@@ -108,7 +108,7 @@ class MilvusVectorStore:
         else:
             # 使用 LLM API 生成 embedding
             self.embedding_model = None
-            print("⚠️  将使用 API 生成 embedding")
+            # 静默处理，不再显示警告
     
     def _connect(self):
         """连接到 Milvus 服务器"""
@@ -126,8 +126,9 @@ class MilvusVectorStore:
             )
             print(f"✅ 已连接到 Milvus: {self.host}:{self.port}")
         except Exception as e:
-            print(f"❌ 连接 Milvus 失败: {e}")
-            raise
+            print(f"⚠️  Milvus 连接不可用 ({self.host}:{self.port})，向量功能将受限")
+            # 不抛出异常，让服务继续运行
+            raise ConnectionError(f"无法连接到 Milvus: {e}")
     
     def _init_collection(self):
         """初始化集合（如果不存在则创建）"""
@@ -292,15 +293,21 @@ class MilvusVectorStore:
         # 搜索参数
         search_params = {"metric_type": self.METRIC_TYPE, "params": {"nprobe": 10}}
         
+        # 构建搜索参数 - Milvus 要求 expr 必须是字符串
+        search_kwargs = {
+            "data": [query_embedding.tolist()],
+            "anns_field": "embedding",
+            "param": search_params,
+            "limit": top_k,
+            "output_fields": ["paper_id", "title", "abstract", "year", "venue"]
+        }
+        
+        # 只有在有 paper_ids 时才添加 expr 参数
+        if paper_ids and len(paper_ids) > 0:
+            search_kwargs["expr"] = f"paper_id in {paper_ids}"
+        
         # 执行搜索
-        results = self.collection.search(
-            data=[query_embedding.tolist()],
-            anns_field="embedding",
-            param=search_params,
-            limit=top_k,
-            expr=f"paper_id in {paper_ids}" if paper_ids else None,
-            output_fields=["paper_id", "title", "abstract", "year", "venue"]
-        )
+        results = self.collection.search(**search_kwargs)
         
         # 解析结果
         search_results = []
@@ -387,40 +394,57 @@ class MilvusVectorStore:
         try:
             from sklearn.cluster import KMeans
         except ImportError:
-            return {"error": "sklearn未安装，请运行: pip install scikit-learn"}
+            return {"error": "sklearn未安装，请运行: pip install scikit-learn", "code": "SKLEARN_MISSING"}
         
         try:
             # 加载集合
             self.collection.load()
             
             # 获取所有论文的向量
-            if paper_ids:
+            # Milvus 要求 expr 必须是字符串，不能是 None
+            if paper_ids and len(paper_ids) > 0:
                 expr = f"paper_id in {paper_ids}"
+                print(f"[DEBUG] 向量聚类查询: paper_ids={paper_ids}, n_clusters={n_clusters}")
             else:
-                expr = None
-            
-            print(f"[DEBUG] 向量聚类查询: expr={expr}, n_clusters={n_clusters}")
+                expr = ""  # 空字符串表示查询所有
+                print(f"[DEBUG] 向量聚类查询: 全部论文, n_clusters={n_clusters}")
             
             # 首先检查集合中是否有数据
             count = self.collection.num_entities
             print(f"[DEBUG] 集合中共有 {count} 条记录")
             
             if count == 0:
-                return {"error": "向量库为空，请先同步论文到向量库"}
+                return {"error": "向量库为空，请先同步论文到向量库", "code": "EMPTY_COLLECTION"}
+            
+            # 根据是否有 expr 调用 query - Milvus 要求 expr 不能为空字符串
+            # 使用 "paper_id >= 0" 作为查询所有数据的条件
+            if paper_ids and len(paper_ids) > 0:
+                query_expr = f"paper_id in {paper_ids}"
+            else:
+                query_expr = "paper_id >= 0"  # 查询所有数据
             
             results = self.collection.query(
-                expr=expr,
+                expr=query_expr,
                 output_fields=["paper_id", "title", "abstract", "embedding", "year", "venue"],
                 limit=10000
             )
             
             print(f"[DEBUG] 查询到 {len(results)} 篇论文")
             
-            if len(results) < n_clusters:
-                return {"error": f"论文数量({len(results)})少于聚类数量({n_clusters})，请减少聚类数量或添加更多论文"}
-            
             if len(results) < 2:
-                return {"error": f"至少需要2篇论文才能进行聚类，当前只有{len(results)}篇"}
+                return {"error": f"至少需要2篇论文才能进行聚类，当前只有{len(results)}篇", "code": "INSUFFICIENT_PAPERS"}
+            
+            # 调整聚类数量不超过样本数
+            actual_n_clusters = min(n_clusters, len(results))
+            if actual_n_clusters < 2:
+                actual_n_clusters = 2
+            
+            if len(results) < actual_n_clusters:
+                return {
+                    "error": f"论文数量({len(results)})少于聚类数量({actual_n_clusters})，请减少聚类数量或添加更多论文",
+                    "code": "INSUFFICIENT_FOR_CLUSTERS",
+                    "suggested_clusters": max(2, len(results) // 2)
+                }
             
             # 提取向量
             embeddings = np.array([r["embedding"] for r in results])
@@ -436,8 +460,6 @@ class MilvusVectorStore:
             ]
             
             # 执行 K-Means 聚类
-            # 确保 n_clusters 不超过样本数
-            actual_n_clusters = min(n_clusters, len(results))
             kmeans = KMeans(n_clusters=actual_n_clusters, random_state=42, n_init=10)
             labels = kmeans.fit_predict(embeddings)
             
@@ -458,6 +480,7 @@ class MilvusVectorStore:
                     }
             
             return {
+                "success": True,
                 "n_clusters": actual_n_clusters,
                 "total_papers": len(results),
                 "method": "kmeans_vector",
@@ -468,7 +491,7 @@ class MilvusVectorStore:
             print(f"[ERROR] 向量聚类失败: {e}")
             import traceback
             traceback.print_exc()
-            return {"error": f"聚类过程出错: {str(e)}"}
+            return {"error": f"聚类过程出错: {str(e)}", "code": "CLUSTER_ERROR"}
     
     def delete_paper(self, paper_id: int) -> bool:
         """
@@ -520,6 +543,7 @@ class MilvusVectorStore:
 class VectorStoreManager:
     """向量存储管理器（单例模式）"""
     _instance = None
+    _initialization_error = None
     
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -541,15 +565,20 @@ class VectorStoreManager:
     def _try_init(self):
         """尝试初始化向量存储"""
         if not MILVUS_AVAILABLE:
-            print("⚠️  Milvus 不可用")
+            print("ℹ️  Milvus 未安装，向量功能不可用")
             return
         
         try:
             self.vector_store = MilvusVectorStore(db_manager=self.db_manager)
             print("✅ 向量存储管理器初始化成功")
-        except Exception as e:
-            print(f"⚠️  向量存储初始化失败: {e}")
+        except ConnectionError as e:
+            print(f"ℹ️  Milvus 连接不可用，向量功能将在连接恢复后自动启用")
             self.vector_store = None
+            VectorStoreManager._initialization_error = str(e)
+        except Exception as e:
+            print(f"ℹ️  向量存储初始化失败: {e}")
+            self.vector_store = None
+            VectorStoreManager._initialization_error = str(e)
     
     def is_available(self) -> bool:
         """检查向量存储是否可用"""

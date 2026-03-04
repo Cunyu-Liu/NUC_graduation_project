@@ -188,7 +188,7 @@
 
       <el-collapse v-model="activeClusters">
         <el-collapse-item
-          v-for="(cluster, index) in Object.entries(result.clusterAnalysis)"
+          v-for="cluster in Object.entries(result.clusterAnalysis)"
           :key="cluster[0]"
           :name="cluster[0]"
         >
@@ -319,8 +319,7 @@
               >
                 <p><strong>论文列表:</strong></p>
                 <ul class="preview-paper-list">
-                  <li v-for="(paper, idx) in cluster.papers.slice(0, 5)" :key="idx">{{ paper }}</li>
-                  <li v-if="cluster.papers.length > 5">... 还有 {{ cluster.papers.length - 5 }} 篇</li>
+                  <li v-for="(paper, idx) in cluster.papers" :key="idx">{{ paper }}</li>
                 </ul>
               </el-collapse-item>
             </el-collapse>
@@ -933,7 +932,7 @@ export default {
         content += `论文总数: ${result.value.papers?.length || 0}\n\n`
 
         // 每个聚类的详细信息
-        Object.entries(result.value.clusterAnalysis).forEach(([clusterId, info], index) => {
+        Object.entries(result.value.clusterAnalysis).forEach(([clusterId, info]) => {
           content += `\n${'=' .repeat(80)}\n`
           content += `聚类 ${parseInt(clusterId) + 1}\n`
           content += `${'-' .repeat(40)}\n`

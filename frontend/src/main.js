@@ -6,6 +6,33 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 
+// 抑制 ResizeObserver loop 错误（Element Plus 已知问题）
+const originalConsoleError = console.error
+console.error = (...args) => {
+  if (args[0] && typeof args[0] === 'string' && args[0].includes('ResizeObserver loop')) {
+    // 忽略 ResizeObserver 错误
+    return
+  }
+  originalConsoleError.apply(console, args)
+}
+
+// 全局错误处理 - 忽略 ResizeObserver 错误
+window.addEventListener('error', (e) => {
+  if (e.message && e.message.includes('ResizeObserver loop')) {
+    e.stopImmediatePropagation()
+    e.preventDefault()
+    return false
+  }
+})
+
+// 处理未处理的 Promise 拒绝
+window.addEventListener('unhandledrejection', (e) => {
+  if (e.reason && e.reason.message && e.reason.message.includes('ResizeObserver loop')) {
+    e.preventDefault()
+    return false
+  }
+})
+
 const app = createApp(App)
 
 app.use(store)

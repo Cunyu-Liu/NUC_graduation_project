@@ -29,14 +29,6 @@ try:
 except ImportError:
     VECTOR_STORE_AVAILABLE = False
 
-# 联网搜索导入
-try:
-    from src.web_search import get_search_engine, WebSearchEngine
-    WEB_SEARCH_AVAILABLE = True
-except ImportError:
-    WEB_SEARCH_AVAILABLE = False
-    WebSearchEngine = None
-
 
 class MessageType(Enum):
     """消息类型"""
@@ -152,11 +144,7 @@ class ChatEngine:
         else:
             self.vector_store = None
         
-        # 初始化搜索引擎
-        if WEB_SEARCH_AVAILABLE:
-            self.search_engine = get_search_engine()
-        else:
-            self.search_engine = None
+
     
     def _create_llm(self, model: Optional[str] = None) -> ChatOpenAI:
         """创建 LLM 实例"""
@@ -239,7 +227,6 @@ class ChatEngine:
                          chat_id: str,
                          message: str,
                          use_rag: bool = True,
-                         use_web_search: bool = False,
                          search_papers: bool = True,
                          files: Optional[List[Dict]] = None,
                          connected_papers: Optional[List[int]] = None) -> AsyncGenerator[str, None]:
@@ -250,7 +237,6 @@ class ChatEngine:
             chat_id: 聊天ID
             message: 用户消息
             use_rag: 是否使用 RAG
-            use_web_search: 是否使用联网搜索
             search_papers: 是否搜索相关论文
             files: 上传的文件内容列表
             connected_papers: 关联的论文ID列表（覆盖上下文中的设置）
@@ -275,36 +261,7 @@ class ChatEngine:
         references = []
         context_parts = []
         
-        # 1. 联网搜索（优先执行，确保结果被使用）
-        web_search_results = []
-        if use_web_search and self.search_engine:
-            try:
-                print(f"🔍 开始联网搜索: {message[:50]}...")
-                web_search_results = self.search_engine.search(message, max_results=5)
-                if web_search_results:
-                    web_context = self.search_engine.format_results_for_llm(web_search_results)
-                    context_parts.append(web_context)
-                    print(f"🌐 联网搜索完成，找到 {len(web_search_results)} 条结果")
-                else:
-                    print("⚠️ 联网搜索未返回结果，尝试备用搜索...")
-                    # 尝试更简单的查询
-                    simple_query = message[:50] if len(message) > 50 else message
-                    web_search_results = self.search_engine.search(simple_query, max_results=3)
-                    if web_search_results:
-                        web_context = self.search_engine.format_results_for_llm(web_search_results)
-                        context_parts.append(web_context)
-                        print(f"🌐 备用搜索完成，找到 {len(web_search_results)} 条结果")
-            except Exception as e:
-                print(f"⚠️ 联网搜索失败: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            if not use_web_search:
-                print("ℹ️ 联网搜索未启用")
-            elif not self.search_engine:
-                print("⚠️ 搜索引擎未初始化")
-        
-        # 2. RAG：检索相关论文（优先在关联论文中搜索）
+        # RAG：检索相关论文（优先在关联论文中搜索）
         if use_rag and self.vector_store and self.vector_store.is_available():
             try:
                 search_results = []
@@ -399,7 +356,7 @@ class ChatEngine:
             elif not self.vector_store.is_available():
                 print("⚠️ 向量存储不可用")
         
-        # 3. 处理上传的文件
+        # 处理上传的文件
         if files and len(files) > 0:
             file_contexts = []
             for i, file_info in enumerate(files, 1):
