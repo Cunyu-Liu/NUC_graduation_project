@@ -26,7 +26,7 @@
       </div>
       
       <div class="templates-section">
-        <h3>📋 快速模板</h3>
+        <h3>快速模板</h3>
         <p class="section-hint">点击加载预设工作流模板，自动配置节点</p>
         <div class="template-buttons">
           <el-button size="small" type="primary" plain @click="loadTemplate('summary')">
@@ -45,7 +45,7 @@
       </div>
 
       <div class="quick-examples">
-        <h3>💡 示例输入</h3>
+        <h3>示例输入</h3>
         <el-collapse>
           <el-collapse-item title="论文摘要示例" name="1">
             <div class="example-text" @click="useExample('paper')">
@@ -414,7 +414,7 @@
     <!-- 使用指南对话框 -->
     <el-dialog v-model="showGuide" title="链式工作流使用指南" width="700px">
       <div class="guide-content">
-        <h4>🚀 快速开始</h4>
+        <h4>快速开始</h4>
         <ol>
           <li><strong>输入内容</strong> - 在左侧输入框中粘贴论文摘要、研究问题或其他文本</li>
           <li><strong>选择模板</strong> - 点击"快速模板"加载预设的工作流配置</li>
@@ -423,7 +423,7 @@
           <li><strong>查看结果</strong> - 在右侧面板查看每个步骤的输出</li>
         </ol>
         
-        <h4>📊 节点类型说明</h4>
+        <h4>节点类型说明</h4>
         <ul>
           <li><strong>分析类</strong> - 提取信息、识别模式、总结内容</li>
           <li><strong>生成类</strong> - 创建新内容，如代码、报告、综述</li>
@@ -431,7 +431,7 @@
           <li><strong>转换类</strong> - 格式转换、数据清洗、翻译</li>
         </ul>
         
-        <h4>💡 使用技巧</h4>
+        <h4>使用技巧</h4>
         <ul>
           <li>使用 <code>{{input}}</code> 引用原始输入</li>
           <li>使用 <code>{{step1}}</code>、<code>{{step2}}</code> 等引用前面节点的输出</li>
@@ -439,7 +439,7 @@
           <li>可以保存常用的工作流配置，方便下次使用</li>
         </ul>
         
-        <h4>🔧 高级配置</h4>
+        <h4>高级配置</h4>
         <ul>
           <li><strong>温度参数</strong> - 较低值产生更确定的输出，较高值更具创造性</li>
           <li><strong>最大长度</strong> - 控制生成的最大token数量</li>

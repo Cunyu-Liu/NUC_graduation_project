@@ -268,7 +268,7 @@
       <div class="paper-selector">
         <!-- 关联论文功能说明 -->
         <el-alert
-          title="💡 关联论文功能说明"
+          title="关联论文功能说明"
           type="info"
           :closable="false"
           class="paper-help-alert"

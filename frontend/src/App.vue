@@ -1,41 +1,43 @@
 <template>
   <div id="app">
-    <el-container v-if="isAuthenticated">
-      <!-- 顶部导航栏 -->
-      <el-header class="header">
+    <el-container v-if="isAuthenticated" class="app-container">
+      <!-- 顶部导航栏 - Premium minimal design -->
+      <el-header class="app-header">
         <div class="header-content">
-          <div class="logo">
-            <el-icon :size="28" color="#fff"><Document /></el-icon>
-            <h1 class="title">科研文献智能分析系统</h1>
+          <div class="brand">
+            <div class="brand-icon">
+              <el-icon :size="24"><Document /></el-icon>
+            </div>
+            <span class="brand-text">Research<span class="brand-accent">Flow</span></span>
           </div>
-          <div class="header-right">
-            <el-button type="primary" @click="showUploadDialog" class="upload-btn">
+          
+          <div class="header-actions">
+            <button class="action-btn primary" @click="showUploadDialog">
               <el-icon><Upload /></el-icon>
               <span>上传论文</span>
-            </el-button>
-
-            <!-- 用户信息 -->
-            <el-dropdown @command="handleUserCommand" class="user-dropdown">
-              <div class="user-info">
+            </button>
+            
+            <el-dropdown @command="handleUserCommand" trigger="click">
+              <button class="user-menu-trigger">
                 <el-avatar :size="32" :src="userAvatar" class="user-avatar">
                   {{ userInitial }}
                 </el-avatar>
-                <span class="username">{{ currentUser?.full_name || currentUser?.username }}</span>
-                <el-icon color="#fff"><ArrowDown /></el-icon>
-              </div>
+                <span class="user-name">{{ currentUser?.full_name || currentUser?.username }}</span>
+                <el-icon class="dropdown-icon"><ArrowDown /></el-icon>
+              </button>
               <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item disabled class="user-info-item">
-                    <div class="user-detail">
-                      <div class="user-detail-name">{{ currentUser?.full_name || currentUser?.username }}</div>
-                      <div class="user-detail-email">{{ currentUser?.email }}</div>
-                    </div>
+                <el-dropdown-menu class="user-dropdown-menu">
+                  <div class="user-dropdown-header">
+                    <div class="user-dropdown-name">{{ currentUser?.full_name || currentUser?.username }}</div>
+                    <div class="user-dropdown-email">{{ currentUser?.email }}</div>
+                  </div>
+                  <el-dropdown-item command="profile">
+                    <el-icon><User /></el-icon>
+                    <span>个人信息</span>
                   </el-dropdown-item>
-                  <el-dropdown-item divided command="profile">
-                    <el-icon><User /></el-icon> 个人信息
-                  </el-dropdown-item>
-                  <el-dropdown-item command="logout">
-                    <el-icon><SwitchButton /></el-icon> 退出登录
+                  <el-dropdown-item divided command="logout" class="logout-item">
+                    <el-icon><SwitchButton /></el-icon>
+                    <span>退出登录</span>
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -44,87 +46,115 @@
         </div>
       </el-header>
 
-      <el-container>
-        <!-- 侧边栏菜单 -->
-        <el-aside width="220px" class="aside">
+      <el-container class="main-container">
+        <!-- 侧边栏 - Clean minimal navigation -->
+        <el-aside :width="isSidebarCollapsed ? '64px' : '220px'" class="app-sidebar">
+          <div class="sidebar-header">
+            <button class="collapse-btn" @click="toggleSidebar">
+              <el-icon><Fold v-if="!isSidebarCollapsed" /><Expand v-else /></el-icon>
+            </button>
+          </div>
+          
           <el-menu
             :default-active="currentRoute"
             router
-            class="menu"
-            background-color="#001529"
-            text-color="rgba(255,255,255,0.65)"
-            active-text-color="#fff"
+            class="sidebar-menu"
+            :collapse="isSidebarCollapsed"
             :collapse-transition="false"
           >
-            <el-menu-item index="/home">
+            <el-menu-item index="/home" class="nav-item">
               <el-icon><HomeFilled /></el-icon>
-              <span>首页</span>
+              <template #title>
+                <span class="nav-label">首页</span>
+              </template>
             </el-menu-item>
 
-            <el-menu-item index="/analyze">
+            <el-menu-item index="/analyze" class="nav-item">
               <el-icon><Document /></el-icon>
-              <span>单篇分析</span>
+              <template #title>
+                <span class="nav-label">单篇分析</span>
+              </template>
             </el-menu-item>
 
-            <el-menu-item index="/cluster">
+            <el-menu-item index="/cluster" class="nav-item">
               <el-icon><DataAnalysis /></el-icon>
-              <span>聚类分析</span>
+              <template #title>
+                <span class="nav-label">聚类分析</span>
+              </template>
             </el-menu-item>
 
-            <el-menu-item index="/files">
+            <el-menu-item index="/files" class="nav-item">
               <el-icon><Folder /></el-icon>
-              <span>文件管理</span>
+              <template #title>
+                <span class="nav-label">文件管理</span>
+              </template>
             </el-menu-item>
 
-            <el-menu-item index="/gaps">
+            <el-menu-item index="/gaps" class="nav-item">
               <el-icon><Search /></el-icon>
-              <span>研究空白</span>
+              <template #title>
+                <span class="nav-label">研究空白</span>
+              </template>
             </el-menu-item>
 
-            <el-menu-item index="/knowledge-graph">
+            <el-menu-item index="/knowledge-graph" class="nav-item">
               <el-icon><Share /></el-icon>
-              <span>知识图谱</span>
+              <template #title>
+                <span class="nav-label">知识图谱</span>
+              </template>
             </el-menu-item>
 
-            <el-menu-item index="/chat">
+            <div class="nav-divider"></div>
+
+            <el-menu-item index="/chat" class="nav-item">
               <el-icon><ChatDotRound /></el-icon>
-              <span>AI 助手</span>
+              <template #title>
+                <span class="nav-label">AI 助手</span>
+              </template>
             </el-menu-item>
 
-            <el-menu-item index="/workflow">
+            <el-menu-item index="/workflow" class="nav-item">
               <el-icon><Connection /></el-icon>
-              <span>链式工作流</span>
+              <template #title>
+                <span class="nav-label">链式工作流</span>
+              </template>
             </el-menu-item>
           </el-menu>
+          
+          <div v-if="!isSidebarCollapsed" class="sidebar-footer">
+            <div class="sidebar-version">v4.2.0</div>
+          </div>
         </el-aside>
 
         <!-- 主内容区 -->
-        <el-main class="main">
-          <router-view />
+        <el-main class="app-main">
+          <router-view v-slot="{ Component }">
+            <transition name="page" mode="out-in">
+              <component :is="Component" />
+            </transition>
+          </router-view>
         </el-main>
       </el-container>
     </el-container>
 
-    <!-- 未登录时只显示路由内容 -->
+    <!-- 未登录时显示路由内容 -->
     <router-view v-else />
 
-    <!-- 上传对话框 -->
+    <!-- 全局对话框 -->
     <UploadDialog ref="uploadDialog" @uploaded="handleFileUploaded" />
-
-    <!-- 进度条 -->
     <ProgressDialog ref="progressDialog" />
   </div>
 </template>
 
 <script>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Document, Upload, ArrowDown, User, SwitchButton,
   HomeFilled, DataAnalysis, Folder, Search, Share,
-  ChatDotRound, Connection
+  ChatDotRound, Connection, Fold, Expand
 } from '@element-plus/icons-vue'
 import UploadDialog from '@/components/UploadDialog.vue'
 import ProgressDialog from '@/components/ProgressDialog.vue'
@@ -136,23 +166,27 @@ export default {
     ProgressDialog,
     Document, Upload, ArrowDown, User, SwitchButton,
     HomeFilled, DataAnalysis, Folder, Search, Share,
-    ChatDotRound, Connection
+    ChatDotRound, Connection, Fold, Expand
   },
   setup() {
     const store = useStore()
     const router = useRouter()
     const route = useRoute()
+    const isSidebarCollapsed = ref(false)
 
     const isAuthenticated = computed(() => store.getters.isAuthenticated)
     const currentUser = computed(() => store.getters.currentUser)
     const currentRoute = computed(() => route.path)
 
-    // 用户头像（默认使用首字母）
     const userAvatar = computed(() => currentUser.value?.avatar || '')
     const userInitial = computed(() => {
       const name = currentUser.value?.full_name || currentUser.value?.username || ''
       return name.charAt(0).toUpperCase()
     })
+
+    const toggleSidebar = () => {
+      isSidebarCollapsed.value = !isSidebarCollapsed.value
+    }
 
     const showUploadDialog = () => {
       store.commit('SHOW_UPLOAD_DIALOG', true)
@@ -162,7 +196,6 @@ export default {
       store.dispatch('fetchFiles')
     }
 
-    // 处理用户下拉菜单命令
     const handleUserCommand = async (command) => {
       switch (command) {
         case 'profile':
@@ -172,15 +205,16 @@ export default {
           try {
             await ElMessageBox.confirm(
               '确定要退出登录吗？',
-              '提示',
+              '退出确认',
               {
                 confirmButtonText: '确定',
                 cancelButtonText: '取消',
-                type: 'warning'
+                type: 'warning',
+                customClass: 'premium-message-box'
               }
             )
             await store.dispatch('logout')
-            ElMessage.success('已退出登录')
+            ElMessage.success({ message: '已退出登录', customClass: 'premium-message' })
             router.push('/login')
           } catch (error) {
             // 用户取消
@@ -193,8 +227,10 @@ export default {
       isAuthenticated,
       currentUser,
       currentRoute,
+      isSidebarCollapsed,
       userAvatar,
       userInitial,
+      toggleSidebar,
       showUploadDialog,
       handleFileUploaded,
       handleUserCommand
@@ -204,302 +240,458 @@ export default {
 </script>
 
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+/* Import Design System */
+@import './styles/design-system.css';
 
+/* ============================================
+   APP CONTAINER
+   ============================================ */
 #app {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
-    'Noto Color Emoji';
+  font-family: var(--font-family-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   height: 100vh;
+  background: var(--color-bg-secondary);
 }
 
-.el-container {
-  height: 100%;
-}
-
-/* 顶部导航栏 - 深色简洁风格 */
-.header {
-  background-color: #001529;
-  color: white;
-  padding: 0 !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-  height: 64px !important;
-  line-height: 64px;
-}
-
-.header-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 100%;
-  padding: 0 24px;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.title {
-  font-size: 20px;
-  font-weight: 500;
-  margin: 0;
-  color: #fff;
-  letter-spacing: 0.5px;
-}
-
-/* 侧边栏 - 深色菜单 */
-.aside {
-  background-color: #001529;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
-  z-index: 10;
-}
-
-.menu {
-  border: none;
-  height: 100%;
-  padding-top: 16px;
-}
-
-.menu .el-menu-item {
-  height: 48px;
-  line-height: 48px;
-  margin: 4px 0;
-  padding-left: 24px !important;
-  font-size: 14px;
-  transition: all 0.3s;
-}
-
-.menu .el-menu-item:hover {
-  background-color: #1890ff !important;
-  color: #fff !important;
-}
-
-.menu .el-menu-item.is-active {
-  background-color: #1890ff !important;
-  color: #fff !important;
-}
-
-.menu .el-menu-item i {
-  margin-right: 10px;
-  font-size: 16px;
-}
-
-/* 主内容区 */
-.main {
-  background-color: #f0f2f5;
-  padding: 24px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  height: calc(100vh - 64px);
-}
-
-/* 防止内部元素产生额外滚动条 */
-.main > * {
-  max-height: none;
-}
-
-/* 确保页面内容不会超出视口 */
-.el-container {
+.app-container {
   height: 100vh;
   overflow: hidden;
 }
 
-/* 侧边栏滚动控制 */
-.aside {
-  overflow-y: auto;
-  overflow-x: hidden;
+/* ============================================
+   HEADER STYLES
+   ============================================ */
+.app-header {
+  height: var(--header-height) !important;
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border-primary);
+  padding: 0 !important;
+  position: relative;
+  z-index: 100;
 }
 
-/* 头部右侧 */
-.header-right {
+.header-content {
   display: flex;
   align-items: center;
-  gap: 24px;
+  justify-content: space-between;
+  height: 100%;
+  padding: 0 var(--space-6);
+  max-width: 1920px;
+  margin: 0 auto;
 }
 
-.upload-btn {
-  background-color: #1890ff;
-  border-color: #1890ff;
-  height: 36px;
-  padding: 0 20px;
+/* Brand */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
-.upload-btn:hover {
-  background-color: #40a9ff;
-  border-color: #40a9ff;
+.brand-icon {
+  width: 40px;
+  height: 40px;
+  background: var(--color-primary-800);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-inverse);
 }
 
-.upload-btn span {
-  margin-left: 6px;
+.brand-text {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
-.user-dropdown {
+.brand-accent {
+  color: var(--color-accent-500);
+  font-weight: var(--font-bold);
+}
+
+/* Header Actions */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-md);
+  border: none;
   cursor: pointer;
+  transition: all var(--transition-fast);
+  background: transparent;
+  color: var(--color-text-secondary);
 }
 
-.user-info {
+.action-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.action-btn.primary {
+  background: var(--color-primary-800);
+  color: var(--color-text-inverse);
+}
+
+.action-btn.primary:hover {
+  background: var(--color-primary-900);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* User Menu */
+.user-menu-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background-color 0.3s;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  background: transparent;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
-.user-info:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+.user-menu-trigger:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-focus);
 }
 
 .user-avatar {
-  background-color: #1890ff;
-  color: white;
-  font-weight: 500;
+  background: var(--color-accent-500);
+  color: var(--color-text-inverse);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
 }
 
-.username {
-  font-size: 14px;
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.85);
+.user-name {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.user-info-item {
-  padding: 0 !important;
+.dropdown-icon {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
 
-.user-detail {
-  padding: 12px 16px;
-  min-width: 160px;
+/* User Dropdown Menu */
+.user-dropdown-menu {
+  padding: var(--space-2) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid var(--color-border-primary) !important;
+  min-width: 200px !important;
 }
 
-.user-detail-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: #262626;
-  margin-bottom: 4px;
+.user-dropdown-header {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-secondary);
+  margin-bottom: var(--space-1);
 }
 
-.user-detail-email {
-  font-size: 12px;
-  color: #8c8c8c;
+.user-dropdown-name {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
 }
 
-/* 卡片样式统一 */
-.el-card {
-  border-radius: 8px;
+.user-dropdown-email {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+.user-dropdown-menu .el-dropdown-menu__item {
+  padding: var(--space-2) var(--space-3) !important;
+  border-radius: var(--radius-md);
+  margin: var(--space-1) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.user-dropdown-menu .el-dropdown-menu__item:hover {
+  background: var(--color-bg-tertiary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.logout-item {
+  color: var(--color-error) !important;
+}
+
+/* ============================================
+   SIDEBAR STYLES
+   ============================================ */
+.app-sidebar {
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border-primary);
+  transition: width var(--transition-base);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: var(--space-4);
+  display: flex;
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.collapse-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
   border: none;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 6px rgba(0, 0, 0, 0.04) !important;
-  transition: all 0.3s;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: all var(--transition-fast);
+}
+
+.collapse-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+/* Sidebar Menu */
+.sidebar-menu {
+  border: none !important;
+  background: transparent !important;
+  flex: 1;
+  padding: var(--space-3);
+}
+
+.sidebar-menu .el-menu-item {
+  height: 44px;
+  line-height: 44px;
+  margin: var(--space-1) 0;
+  padding: 0 var(--space-3) !important;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary) !important;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  transition: all var(--transition-fast);
+}
+
+.sidebar-menu .el-menu-item:hover {
+  background: var(--color-bg-tertiary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.sidebar-menu .el-menu-item.is-active {
+  background: var(--color-primary-800) !important;
+  color: var(--color-text-inverse) !important;
+  font-weight: var(--font-semibold);
+}
+
+.sidebar-menu .el-icon {
+  font-size: 18px;
+  margin-right: var(--space-3);
+}
+
+.nav-label {
+  letter-spacing: var(--tracking-wide);
+}
+
+.nav-divider {
+  height: 1px;
+  background: var(--color-border-primary);
+  margin: var(--space-3) var(--space-4);
+}
+
+.sidebar-footer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-border-secondary);
+}
+
+.sidebar-version {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* ============================================
+   MAIN CONTENT AREA
+   ============================================ */
+.main-container {
+  height: calc(100vh - var(--header-height));
+}
+
+.app-main {
+  background: var(--color-bg-secondary);
+  padding: var(--space-6);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ============================================
+   PAGE TRANSITIONS
+   ============================================ */
+.page-enter-active,
+.page-leave-active {
+  transition: all var(--transition-slow);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* ============================================
+   ELEMENT PLUS OVERRIDES
+   ============================================ */
+.el-card {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--color-border-primary) !important;
+  box-shadow: var(--shadow-sm) !important;
+  transition: box-shadow var(--transition-base) !important;
 }
 
 .el-card:hover {
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08), 0 6px 16px rgba(0, 0, 0, 0.06) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
-/* 按钮样式 */
 .el-button {
-  border-radius: 6px;
-  font-weight: 400;
+  border-radius: var(--radius-md) !important;
+  font-weight: var(--font-medium) !important;
+  transition: all var(--transition-fast) !important;
 }
 
 .el-button--primary {
-  background-color: #1890ff;
-  border-color: #1890ff;
+  background: var(--color-primary-800) !important;
+  border-color: var(--color-primary-800) !important;
 }
 
 .el-button--primary:hover {
-  background-color: #40a9ff;
-  border-color: #40a9ff;
+  background: var(--color-primary-900) !important;
+  border-color: var(--color-primary-900) !important;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
-.el-button--success {
-  background-color: #52c41a;
-  border-color: #52c41a;
+.el-input__wrapper {
+  border-radius: var(--radius-md) !important;
+  box-shadow: 0 0 0 1px var(--color-border-primary) inset !important;
 }
 
-.el-button--success:hover {
-  background-color: #73d13d;
-  border-color: #73d13d;
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--color-primary-400) inset !important;
 }
 
-.el-button--danger {
-  background-color: #ff4d4f;
-  border-color: #ff4d4f;
-}
-
-.el-button--danger:hover {
-  background-color: #ff7875;
-  border-color: #ff7875;
-}
-
-/* 表格样式 */
 .el-table {
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .el-table th {
-  background-color: #fafafa !important;
-  font-weight: 500;
-  color: #262626;
+  background: var(--color-bg-secondary) !important;
+  font-weight: var(--font-semibold) !important;
+  color: var(--color-text-secondary) !important;
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
 }
 
-/* 标签样式 */
 .el-tag {
-  border-radius: 4px;
-  font-weight: 400;
+  border-radius: var(--radius-full) !important;
+  font-weight: var(--font-medium) !important;
 }
 
-/* 输入框样式 */
-.el-input__wrapper {
-  border-radius: 6px;
-}
-
-/* 分页样式 */
-.el-pagination {
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
-/* 空状态样式 */
-.el-empty {
-  padding: 48px 0;
-}
-
-/* 对话框样式 */
 .el-dialog {
-  border-radius: 12px;
+  border-radius: var(--radius-xl) !important;
   overflow: hidden;
+  box-shadow: var(--shadow-xl) !important;
 }
 
 .el-dialog__header {
-  border-bottom: 1px solid #f0f0f0;
-  padding: 20px 24px;
-  margin-right: 0;
+  padding: var(--space-5) var(--space-6) !important;
+  border-bottom: 1px solid var(--color-border-primary) !important;
+  margin-right: 0 !important;
 }
 
 .el-dialog__title {
-  font-weight: 500;
-  font-size: 16px;
+  font-weight: var(--font-semibold) !important;
+  font-size: var(--text-lg) !important;
+  color: var(--color-text-primary) !important;
 }
 
 .el-dialog__body {
-  padding: 24px;
+  padding: var(--space-6) !important;
 }
 
 .el-dialog__footer {
-  border-top: 1px solid #f0f0f0;
-  padding: 16px 24px;
+  padding: var(--space-4) var(--space-6) !important;
+  border-top: 1px solid var(--color-border-primary) !important;
+}
+
+/* Message Box */
+.premium-message-box .el-message-box__title {
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.premium-message-box .el-message-box__content {
+  color: var(--color-text-secondary);
+}
+
+/* ============================================
+   RESPONSIVE DESIGN
+   ============================================ */
+@media (max-width: 768px) {
+  .header-content {
+    padding: 0 var(--space-4);
+  }
+  
+  .brand-text {
+    display: none;
+  }
+  
+  .user-name {
+    display: none;
+  }
+  
+  .action-btn span {
+    display: none;
+  }
+  
+  .app-sidebar {
+    position: fixed;
+    left: 0;
+    top: var(--header-height);
+    bottom: 0;
+    z-index: 99;
+    transform: translateX(-100%);
+    transition: transform var(--transition-base);
+  }
+  
+  .app-sidebar.is-open {
+    transform: translateX(0);
+  }
+  
+  .app-main {
+    padding: var(--space-4);
+  }
 }
 </style>

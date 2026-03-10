@@ -819,21 +819,30 @@ export default {
 </script>
 
 <style scoped>
+@import '../styles/design-system.css';
+
 .analyze {
   max-width: 1200px;
   margin: 0 auto;
 }
 
 h2 {
-  margin-bottom: 20px;
-  color: #303133;
+  margin-bottom: var(--space-5);
+  color: var(--color-text-primary);
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  letter-spacing: var(--tracking-tight);
 }
 
 .select-card,
 .paper-card,
 .options-card,
 .result-card {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .paper-info {
