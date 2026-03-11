@@ -189,10 +189,14 @@ export default {
         const response = await api.getStatistics()
         if (response.success) {
           const data = response.data
-          stats.value[0].value = data.total_papers || 0
-          stats.value[1].value = data.completed_analyses || 0
-          stats.value[2].value = data.total_gaps || 0
-          stats.value[3].value = data.total_generated_code || 0
+          // 使用新数组确保响应式更新
+          stats.value = [
+            { title: '已上传论文', value: data.total_papers || 0, icon: 'Document', class: 'blue' },
+            { title: '分析完成', value: data.completed_analyses || 0, icon: 'DocumentChecked', class: 'green' },
+            { title: '发现空白', value: data.total_gaps || 0, icon: 'Search', class: 'amber' },
+            { title: '生成代码', value: data.total_generated_code || 0, icon: 'Cpu', class: 'purple' }
+          ]
+          console.log('[Home] 统计数据已更新:', stats.value)
         }
       } catch (error) {
         console.error('获取统计数据失败:', error)

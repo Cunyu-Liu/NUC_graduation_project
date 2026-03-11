@@ -650,7 +650,7 @@ export default {
     }
 
     // 研究空白编辑功能
-    const startEditGap = (gap, _index) => {
+    const startEditGap = (gap) => {
       // 保存原始数据
       gap.originalData = { ...gap }
       // 将字符串importance转换为数值用于el-rate
@@ -668,7 +668,7 @@ export default {
       gap.editing = true
     }
 
-    const saveGap = async (gap, _index) => {
+    const saveGap = async (gap) => {
       try {
         // 转换数值为字符串
         const importanceStr = gap.editData.importance >= 3 ? 'high' : gap.editData.importance >= 2 ? 'medium' : 'low'
@@ -698,7 +698,7 @@ export default {
       }
     }
 
-    const cancelEditGap = (gap, _index) => {
+    const cancelEditGap = (gap) => {
       // 恢复原始数据
       Object.assign(gap, gap.originalData)
       gap.editing = false
@@ -706,7 +706,7 @@ export default {
       delete gap.editData
     }
 
-    const generateCode = async (gap, _index) => {
+    const generateCode = async (gap) => {
       try {
         gap.generating = true
         ElMessage.info('正在生成代码，请稍候...')

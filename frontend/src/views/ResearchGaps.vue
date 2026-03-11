@@ -140,42 +140,47 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="240" align="center">
+        <el-table-column label="操作" width="280" align="center">
           <template #default="{ row }">
-            <el-button-group>
+            <div class="action-buttons">
               <el-button
                 size="small"
                 @click.stop="generateCode(row)"
                 :disabled="row.status !== 'identified' || generatingCode"
                 :loading="generatingCode && currentGeneratingGap === row.id"
-                icon="MagicStick"
               >
-                {{ generatingCode && currentGeneratingGap === row.id ? '生成中...' : '生成代码' }}
+                <el-icon><MagicStick /></el-icon>
+                <span>{{ generatingCode && currentGeneratingGap === row.id ? '生成中...' : '生成代码' }}</span>
               </el-button>
               <el-button
                 size="small"
                 @click.stop="editGap(row)"
-                icon="Edit"
               >
-                编辑
+                <el-icon><Edit /></el-icon>
+                <span>编辑</span>
               </el-button>
               <el-dropdown @command="(cmd) => handleCommand(cmd, row)">
-                <el-button size="small" icon="More">
-                  更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                <el-button size="small">
+                  <el-icon><More /></el-icon>
+                  <span>更多</span>
+                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                 </el-button>
                 <template #dropdown>
-                  <el-dropdown-item command="viewPaper" icon="Document">
-                    查看论文
+                  <el-dropdown-item command="viewPaper">
+                    <el-icon><Document /></el-icon>
+                    <span>查看论文</span>
                   </el-dropdown-item>
-                  <el-dropdown-item command="viewAnalysis" icon="DataAnalysis">
-                    查看分析
+                  <el-dropdown-item command="viewAnalysis">
+                    <el-icon><DataAnalysis /></el-icon>
+                    <span>查看分析</span>
                   </el-dropdown-item>
-                  <el-dropdown-item command="export" icon="Download">
-                    导出
+                  <el-dropdown-item command="export">
+                    <el-icon><Download /></el-icon>
+                    <span>导出</span>
                   </el-dropdown-item>
                 </template>
               </el-dropdown>
-            </el-button-group>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -398,6 +403,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import {
+  MagicStick, Edit, More, ArrowDown, Document, DataAnalysis, Download
+} from '@element-plus/icons-vue'
 import api from '@/api'
 
 // 响应式数据
@@ -1082,5 +1090,25 @@ onMounted(() => {
   word-wrap: break-word;
   max-height: none;
   overflow-y: visible;
+}
+
+/* 操作按钮布局 */
+.action-buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.action-buttons .el-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.action-buttons .el-button [class*="el-icon"] {
+  font-size: 14px;
 }
 </style>

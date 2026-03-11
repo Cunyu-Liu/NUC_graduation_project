@@ -29,6 +29,13 @@ try:
 except ImportError:
     VECTOR_STORE_AVAILABLE = False
 
+# 数据库导入
+try:
+    from src.db_manager import DatabaseManager
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
+
 
 class MessageType(Enum):
     """消息类型"""
@@ -106,6 +113,8 @@ class ChatEngine:
     # 系统提示词模板
     DEFAULT_SYSTEM_PROMPT = """你是一位专业的科研助手，帮助研究人员进行文献分析、研究设计和学术写作。
 
+【重要】每轮对话中，用户可能会关联一些论文，这些论文的完整内容（包括标题、摘要、核心要点等）会作为上下文提供给你。你必须基于这些内容进行分析和回答。
+
 你的能力包括：
 1. 深度文献解读和分析
 2. 研究空白识别和建议
@@ -115,7 +124,9 @@ class ChatEngine:
 
 请遵循以下原则：
 - 回答要专业、准确、有深度
-- 引用相关论文时要准确
+- 引用相关论文时要准确（使用论文标题或编号）
+- 基于提供的论文内容进行分析，不要说你无法访问这些内容
+- 如果用户询问关联论文的内容，直接基于提供的上下文回答
 - 对于不确定的内容要诚实说明
 - 鼓励批判性思维和创新
 
@@ -262,6 +273,7 @@ class ChatEngine:
         context_parts = []
         
         # RAG：检索相关论文（优先在关联论文中搜索）
+        rag_succeeded = False
         if use_rag and self.vector_store and self.vector_store.is_available():
             try:
                 search_results = []
@@ -308,6 +320,7 @@ class ChatEngine:
                     
                     # 构建上下文提示词
                     if search_results:
+                        rag_succeeded = True
                         if effective_connected_papers and len(effective_connected_papers) > 0:
                             # 区分关联论文和其他论文
                             connected_results = [r for r in search_results if r.paper_id in effective_connected_papers]
@@ -355,6 +368,44 @@ class ChatEngine:
                 print("⚠️ 向量存储未初始化")
             elif not self.vector_store.is_available():
                 print("⚠️ 向量存储不可用")
+        
+        # 【关键】如果有关联论文，但RAG未成功获取内容，直接从数据库获取完整内容
+        # 这确保了无论向量库状态如何，关联论文的内容都能被AI读取
+        if effective_connected_papers and len(effective_connected_papers) > 0 and not rag_succeeded:
+            try:
+                print(f"📚 从数据库直接获取 {len(effective_connected_papers)} 篇关联论文的完整内容...")
+                paper_contents = self._get_papers_content_from_db(effective_connected_papers)
+                if paper_contents:
+                    paper_contexts = []
+                    paper_contexts.append(f"【您关联的 {len(paper_contents)} 篇论文 - 完整内容】")
+                    for i, paper in enumerate(paper_contents, 1):
+                        content_parts = [f"论文 {i}: {paper.get('title', '未命名')}"]
+                        if paper.get('abstract'):
+                            content_parts.append(f"摘要: {paper['abstract']}")
+                        if paper.get('summary'):
+                            content_parts.append(f"AI分析摘要: {paper['summary'][:500]}")
+                        if paper.get('keypoints'):
+                            content_parts.append(f"核心要点: {paper['keypoints']}")
+                        paper_contexts.append("\n".join(content_parts))
+                    
+                    db_context = "【关联论文详细内容】\n\n" + "\n\n---\n\n".join(paper_contexts)
+                    context_parts.append(db_context)
+                    print(f"✅ 已从数据库获取 {len(paper_contents)} 篇论文完整内容")
+                    
+                    # 添加引用
+                    references = [
+                        {"paper_id": p.get('id'), "title": p.get('title')}
+                        for p in paper_contents
+                    ]
+                else:
+                    # 如果数据库查询失败，添加提示让AI知道
+                    error_context = f"【系统提示】用户关联了 {len(effective_connected_papers)} 篇论文（ID: {effective_connected_papers}），但系统无法从数据库获取这些论文的内容。请告知用户检查论文是否存在或联系技术支持。"
+                    context_parts.append(error_context)
+                    print(f"⚠️ 无法从数据库获取论文内容，请检查论文ID: {effective_connected_papers}")
+            except Exception as e:
+                print(f"❌ 从数据库获取论文内容失败: {e}")
+                import traceback
+                traceback.print_exc()
         
         # 处理上传的文件
         if files and len(files) > 0:
@@ -460,6 +511,92 @@ class ChatEngine:
             }
             for msg in context.messages
         ]
+    
+    def _get_papers_content_from_db(self, paper_ids: List[int]) -> List[Dict[str, Any]]:
+        """
+        从数据库获取论文完整内容（RAG不可用时备用）
+        
+        Args:
+            paper_ids: 论文ID列表
+            
+        Returns:
+            论文内容列表
+        """
+        print(f"[DEBUG] _get_papers_content_from_db 被调用，paper_ids={paper_ids}")
+        
+        if not paper_ids:
+            print("[DEBUG] paper_ids 为空，直接返回")
+            return []
+        
+        try:
+            # 尝试导入并创建数据库管理器
+            if DB_AVAILABLE and self.db_manager is None:
+                print("[DEBUG] 创建新的 DatabaseManager 实例")
+                self.db_manager = DatabaseManager()
+            
+            if not self.db_manager:
+                print("⚠️ 数据库管理器不可用 (db_manager is None)")
+                return []
+            
+            print(f"[DEBUG] 使用 db_manager: {type(self.db_manager)}")
+            
+            papers_content = []
+            for paper_id in paper_ids:
+                try:
+                    print(f"[DEBUG] 查询论文 ID={paper_id}")
+                    
+                    # 获取论文基本信息
+                    paper = self.db_manager.get_paper(paper_id)
+                    print(f"[DEBUG] 查询结果: paper={paper is not None}")
+                    
+                    if not paper:
+                        print(f"⚠️ 未找到论文 ID={paper_id}")
+                        continue
+                    
+                    # 获取论文分析结果
+                    analyses = self.db_manager.get_analyses_by_paper(paper_id)
+                    print(f"[DEBUG] 分析结果数量: {len(analyses)}")
+                    analysis = analyses[0] if analyses else None
+                    
+                    content = {
+                        'id': paper_id,
+                        'title': paper.get('title', '未命名论文'),
+                        'abstract': paper.get('abstract', ''),
+                        'year': paper.get('year'),
+                        'venue': paper.get('venue', ''),
+                    }
+                    
+                    # 如果有分析结果，提取关键信息
+                    if analysis:
+                        if analysis.get('summary'):
+                            content['summary'] = analysis['summary']
+                        if analysis.get('keypoints'):
+                            keypoints = analysis['keypoints']
+                            if isinstance(keypoints, dict):
+                                # 将关键要点转换为字符串
+                                keypoints_str = []
+                                for category, items in keypoints.items():
+                                    if isinstance(items, list):
+                                        keypoints_str.append(f"{category}: {', '.join(items[:3])}")
+                                content['keypoints'] = '; '.join(keypoints_str)
+                            elif isinstance(keypoints, str):
+                                content['keypoints'] = keypoints[:1000]
+                    
+                    papers_content.append(content)
+                    print(f"[DEBUG] 成功添加论文内容: {content.get('title', '未命名')}")
+                except Exception as e:
+                    print(f"⚠️ 获取论文 {paper_id} 内容失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
+            
+            print(f"[DEBUG] 总共获取 {len(papers_content)} 篇论文内容")
+            return papers_content
+        except Exception as e:
+            print(f"❌ 从数据库获取论文内容失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
     
     def list_chats(self) -> List[Dict[str, Any]]:
         """

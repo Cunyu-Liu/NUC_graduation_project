@@ -84,9 +84,9 @@
         <!-- 欢迎页面 -->
         <div v-if="messages.length === 0" class="welcome-section">
           <div class="welcome-logo">
-            <el-icon :size="80" color="#10b981"><ChatDotRound /></el-icon>
+            <el-icon :size="80" color="#2d2d2d"><ChatDotRound /></el-icon>
           </div>
-          <h1 class="welcome-title">AI 科研助手</h1>
+          <h1 class="welcome-title">AI <span class="accent">科研助手</span></h1>
           <p class="welcome-subtitle">
             基于您的论文库，提供深度文献分析、研究建议、代码生成等服务
           </p>
@@ -264,24 +264,32 @@
     </main>
 
     <!-- 论文选择对话框 -->
-    <el-dialog v-model="showPaperSelector" title="选择关联论文" width="700px">
+    <el-dialog 
+      v-model="showPaperSelector" 
+      title="选择关联论文" 
+      width="700px"
+      :close-on-click-modal="false"
+      class="paper-selector-dialog"
+    >
       <div class="paper-selector">
         <!-- 关联论文功能说明 -->
         <el-alert
           title="关联论文功能说明"
-          type="info"
+          type="success"
           :closable="false"
           class="paper-help-alert"
+          show-icon
         >
           <template #default>
             <div class="paper-help-content">
               <p><strong>什么是关联论文？</strong></p>
-              <p>关联论文是指在AI回答您的问题时，<strong>优先参考</strong>的论文。这可以让AI的回答更贴合您的研究内容。</p>
+              <p>关联论文后，AI 助手将能够<strong>直接读取并理解</strong>这些论文的完整内容（标题、摘要、核心要点等），并基于这些内容回答您的问题。</p>
               <p style="margin-top: 8px;"><strong>如何使用？</strong></p>
               <ul>
                 <li>选择您想要重点参考的论文（可多选）</li>
-                <li>点击"确定"后，这些论文会在RAG检索时被优先搜索</li>
-                <li>发送消息时，AI会优先分析这些论文的内容来回答您的问题</li>
+                <li>点击"确定"后，论文内容将被加载到当前对话中</li>
+                <li>发送消息时，AI 会基于这些论文的内容进行深入分析和回答</li>
+                <li>您可以随时更换关联的论文以适应不同的问题场景</li>
               </ul>
             </div>
           </template>
@@ -298,26 +306,33 @@
           </template>
         </el-input>
 
-        <el-table
-          :data="filteredPapers"
-          style="width: 100%"
-          max-height="400"
-          @selection-change="handlePaperSelectionChange"
-          ref="paperTable"
-        >
-          <el-table-column type="selection" width="55" />
-          <el-table-column prop="title" label="论文标题" show-overflow-tooltip min-width="250" />
-          <el-table-column prop="year" label="年份" width="80" />
-          <el-table-column prop="venue" label="期刊/会议" show-overflow-tooltip />
-        </el-table>
+        <div class="paper-table-wrapper">
+          <el-table
+            :data="filteredPapers"
+            style="width: 100%"
+            height="280"
+            @selection-change="handlePaperSelectionChange"
+            ref="paperTable"
+            row-key="id"
+            v-loading="loadingPapers"
+            empty-text="暂无论文，请先上传"
+          >
+            <el-table-column type="selection" width="55" reserve-selection />
+            <el-table-column prop="title" label="论文标题" show-overflow-tooltip min-width="250" />
+            <el-table-column prop="year" label="年份" width="80" />
+            <el-table-column prop="venue" label="期刊/会议" show-overflow-tooltip />
+          </el-table>
+        </div>
       </div>
 
       <template #footer>
-        <div class="dialog-footer">
-          <span>已选择 {{ tempSelectedPapers.length }} 篇论文</span>
-          <div>
-            <el-button @click="showPaperSelector = false">取消</el-button>
-            <el-button type="primary" @click="confirmPaperSelection">确定</el-button>
+        <div class="paper-dialog-footer">
+          <span class="selected-count">已选择 <strong>{{ tempSelectedPapers.length }}</strong> 篇论文</span>
+          <div class="dialog-actions">
+            <el-button size="default" @click="showPaperSelector = false">取消</el-button>
+            <el-button size="default" type="primary" @click="confirmPaperSelection" :loading="loadingPapers">
+              确定
+            </el-button>
           </div>
         </div>
       </template>
@@ -411,6 +426,7 @@ const paperSearch = ref('')
 const papers = ref([])
 const tempSelectedPapers = ref([])
 const paperTable = ref(null)
+const loadingPapers = ref(false)
 
 // 设置
 const showSettings = ref(false)
@@ -934,14 +950,14 @@ onMounted(() => {
 .kimi-chat-container {
   display: flex;
   height: calc(100vh - 64px);
-  background: #f9fafb;
+  background: var(--color-bg-secondary);
 }
 
 /* ==================== 侧边栏 ==================== */
 .sidebar {
   width: 260px;
-  background: #ffffff;
-  border-right: 1px solid #e5e7eb;
+  background: var(--color-bg-primary);
+  border-right: 1px solid var(--color-border-primary);
   display: flex;
   flex-direction: column;
   transition: width 0.3s ease;
@@ -955,7 +971,7 @@ onMounted(() => {
   padding: 16px;
   display: flex;
   gap: 8px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border-primary);
 }
 
 .new-chat-btn {
@@ -965,19 +981,20 @@ onMounted(() => {
   justify-content: center;
   gap: 8px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
+  background: var(--color-primary-800);
+  color: var(--color-text-inverse);
   border: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 500;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .new-chat-btn:hover {
+  background: var(--color-primary-900);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .collapse-btn {
@@ -986,15 +1003,17 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f3f4f6;
+  background: var(--color-bg-tertiary);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
+  color: var(--color-text-muted);
 }
 
 .collapse-btn:hover {
-  background: #e5e7eb;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .sidebar.collapsed .new-chat-btn span {
@@ -1013,48 +1032,52 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   margin-bottom: 4px;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   position: relative;
 }
 
 .chat-item:hover {
-  background: #f3f4f6;
+  background: var(--color-bg-tertiary);
 }
 
 .chat-item.active {
-  background: #d1fae5;
+  background: var(--color-primary-800);
 }
 
 .chat-item.active .chat-title {
-  color: #059669;
-  font-weight: 500;
+  color: var(--color-text-inverse);
+  font-weight: var(--font-medium);
 }
 
 .chat-icon {
   font-size: 16px;
-  color: #6b7280;
+  color: var(--color-text-muted);
   flex-shrink: 0;
 }
 
 .chat-item.active .chat-icon {
-  color: #059669;
+  color: var(--color-text-inverse);
 }
 
 .chat-title {
   flex: 1;
-  font-size: 14px;
-  color: #374151;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.chat-item.active .chat-title {
+  color: var(--color-text-inverse);
+}
+
 .chat-actions {
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity var(--transition-fast);
 }
 
 .chat-item:hover .chat-actions {
@@ -1063,14 +1086,18 @@ onMounted(() => {
 
 .more-icon {
   padding: 4px;
-  border-radius: 4px;
-  color: #6b7280;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
   cursor: pointer;
 }
 
 .more-icon:hover {
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.chat-item.active .more-icon {
+  color: var(--color-text-inverse);
 }
 
 .sidebar.collapsed .chat-title,
@@ -1081,7 +1108,7 @@ onMounted(() => {
 /* 侧边栏底部 */
 .sidebar-footer {
   padding: 12px 16px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border-primary);
 }
 
 .footer-btn {
@@ -1092,16 +1119,16 @@ onMounted(() => {
   padding: 10px 12px;
   background: transparent;
   border: none;
-  border-radius: 8px;
-  color: #6b7280;
-  font-size: 14px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .footer-btn:hover {
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .sidebar.collapsed .footer-btn span {
@@ -1122,8 +1149,8 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 24px;
-  background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border-primary);
 }
 
 .header-left {
@@ -1133,9 +1160,9 @@ onMounted(() => {
 }
 
 .chat-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #111827;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
   margin: 0;
 }
 
@@ -1178,19 +1205,19 @@ onMounted(() => {
 }
 
 .welcome-title {
-  font-size: 32px;
-  font-weight: 700;
-  color: #111827;
+  font-size: var(--text-3xl);
+  font-weight: var(--font-bold);
+  color: var(--color-text-primary);
   margin-bottom: 12px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+}
+
+.welcome-title .accent {
+  color: var(--color-accent-500);
 }
 
 .welcome-subtitle {
-  font-size: 16px;
-  color: #6b7280;
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
   max-width: 500px;
   margin-bottom: 40px;
 }
@@ -1210,27 +1237,27 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 20px 16px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .quick-card:hover {
-  border-color: #10b981;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+  border-color: var(--color-primary-400);
+  box-shadow: var(--shadow-md);
   transform: translateY(-2px);
 }
 
 .quick-card span {
-  font-size: 14px;
-  color: #374151;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-medium);
 }
 
 .quick-card:hover span {
-  color: #059669;
+  color: var(--color-text-primary);
 }
 
 /* 示例问题 */
@@ -1239,8 +1266,8 @@ onMounted(() => {
 }
 
 .section-title {
-  font-size: 14px;
-  color: #9ca3af;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
   margin-bottom: 16px;
 }
 
@@ -1253,13 +1280,13 @@ onMounted(() => {
 
 .question-tag {
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .question-tag:hover {
-  background: #d1fae5;
-  border-color: #10b981;
-  color: #059669;
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-primary-400);
+  color: var(--color-text-primary);
 }
 
 /* 消息样式 */
@@ -1289,9 +1316,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: var(--color-primary-800);
   border-radius: 50%;
-  color: white;
+  color: var(--color-text-inverse);
 }
 
 .message-content {
@@ -1312,32 +1339,32 @@ onMounted(() => {
 
 .message-role {
   font-size: 13px;
-  font-weight: 600;
-  color: #374151;
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
 }
 
 .message-time {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--color-text-muted);
 }
 
 .message-body {
   padding: 14px 18px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-size: 15px;
   line-height: 1.7;
-  color: #374151;
+  color: var(--color-text-primary);
 }
 
 .user-message .message-body {
-  background: #10b981;
-  color: white;
+  background: var(--color-primary-800);
+  color: var(--color-text-inverse);
   border-bottom-right-radius: 4px;
 }
 
 .ai-message .message-body {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
   border-bottom-left-radius: 4px;
 }
 
@@ -1350,23 +1377,23 @@ onMounted(() => {
 }
 
 .ai-message .message-body :deep(pre) {
-  background: #1f2937;
-  border-radius: 8px;
+  background: var(--color-primary-900);
+  border-radius: var(--radius-md);
   padding: 16px;
   overflow-x: auto;
   margin: 12px 0;
 }
 
 .ai-message .message-body :deep(code) {
-  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-family-mono);
   font-size: 13px;
 }
 
 .ai-message .message-body :deep(:not(pre) > code) {
-  background: #f3f4f6;
+  background: var(--color-bg-tertiary);
   padding: 2px 6px;
-  border-radius: 4px;
-  color: #ec4899;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-600);
 }
 
 .ai-message .message-body :deep(ul), .ai-message .message-body :deep(ol) {
@@ -1380,27 +1407,27 @@ onMounted(() => {
 
 .ai-message .message-body :deep(h1), .ai-message .message-body :deep(h2), .ai-message .message-body :deep(h3) {
   margin: 20px 0 12px 0;
-  color: #111827;
+  color: var(--color-text-primary);
 }
 
 .ai-message .message-body :deep(blockquote) {
-  border-left: 4px solid #10b981;
+  border-left: 4px solid var(--color-primary-400);
   margin: 12px 0;
   padding: 8px 16px;
-  background: #f0fdf4;
-  border-radius: 0 8px 8px 0;
+  background: var(--color-bg-tertiary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 
 /* 引用文献 */
 .message-references {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--color-border-primary);
 }
 
 .ref-title {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--color-text-muted);
   margin-bottom: 8px;
 }
 
@@ -1412,13 +1439,13 @@ onMounted(() => {
 
 .ref-tag {
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .ref-tag:hover {
-  background: #d1fae5;
-  border-color: #10b981;
-  color: #059669;
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-primary-400);
+  color: var(--color-text-primary);
 }
 
 /* 正在输入动画 */
@@ -1427,16 +1454,16 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   padding: 16px 18px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
   border-bottom-left-radius: 4px;
 }
 
 .typing-indicator span {
   width: 8px;
   height: 8px;
-  background: #10b981;
+  background: var(--color-primary-500);
   border-radius: 50%;
   animation: typing 1.4s infinite ease-in-out both;
 }
@@ -1462,8 +1489,8 @@ onMounted(() => {
 
 /* ==================== 输入区域 ==================== */
 .input-area {
-  background: #ffffff;
-  border-top: 1px solid #e5e7eb;
+  background: var(--color-bg-primary);
+  border-top: 1px solid var(--color-border-primary);
   padding: 16px 24px;
 }
 
@@ -1478,25 +1505,25 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  color: #6b7280;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   position: relative;
 }
 
 .tool-btn:hover {
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .tool-btn.active {
-  background: #d1fae5;
-  border-color: #10b981;
-  color: #059669;
+  background: var(--color-primary-100);
+  border-color: var(--color-primary-400);
+  color: var(--color-primary-700);
 }
 
 .tool-btn .badge {
@@ -1518,17 +1545,17 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: flex-end;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
   padding: 12px 16px;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .input-box:focus-within {
-  background: #ffffff;
-  border-color: #10b981;
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+  background: var(--color-bg-primary);
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px rgba(45, 45, 45, 0.1);
 }
 
 .input-box :deep(.el-textarea__inner) {
@@ -1550,22 +1577,23 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: var(--color-primary-800);
   border: none;
-  border-radius: 10px;
-  color: white;
+  border-radius: var(--radius-md);
+  color: var(--color-text-inverse);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 
 .send-btn:hover:not(:disabled) {
+  background: var(--color-primary-900);
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  box-shadow: var(--shadow-md);
 }
 
 .send-btn:disabled {
-  background: #d1d5db;
+  background: var(--color-primary-200);
   cursor: not-allowed;
 }
 
@@ -1583,7 +1611,7 @@ onMounted(() => {
   justify-content: space-between;
   margin-top: 8px;
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--color-text-muted);
 }
 
 /* ==================== 对话框样式 ==================== */
@@ -1599,8 +1627,35 @@ onMounted(() => {
   gap: 12px;
 }
 
+/* 论文选择对话框样式 */
+.paper-selector-dialog :deep(.el-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+
+.paper-selector-dialog :deep(.el-dialog__body) {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.paper-selector-dialog :deep(.el-dialog__footer) {
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border-primary);
+  background: var(--color-bg-primary);
+  flex-shrink: 0;
+}
+
 .paper-selector {
-  max-height: 500px;
+  display: flex;
+  flex-direction: column;
+}
+
+.paper-table-wrapper {
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
 .paper-search {
@@ -1609,13 +1664,35 @@ onMounted(() => {
 
 .slider-hint {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--color-text-muted);
   margin-top: 4px;
 }
 
 /* 关联论文帮助提示 */
 .paper-help-alert {
   margin-bottom: 16px;
+}
+
+/* 论文对话框底部 */
+.paper-dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.selected-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.selected-count strong {
+  color: var(--color-primary-800);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: var(--space-3);
 }
 
 .paper-help-content {
@@ -1640,9 +1717,9 @@ onMounted(() => {
 .uploaded-files {
   margin-bottom: 12px;
   padding: 12px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
 }
 
 .uploaded-files-title {
@@ -1650,8 +1727,8 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #166534;
-  font-weight: 500;
+  color: var(--color-text-secondary);
+  font-weight: var(--font-medium);
   margin-bottom: 8px;
 }
 
@@ -1670,12 +1747,12 @@ onMounted(() => {
 
 /* 下拉菜单危险项 */
 :deep(.el-dropdown-menu__item.danger) {
-  color: #ef4444;
+  color: var(--color-error);
 }
 
 :deep(.el-dropdown-menu__item.danger:hover) {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--color-error-bg);
+  color: var(--color-error);
 }
 
 /* 响应式 */

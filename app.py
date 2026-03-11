@@ -1668,8 +1668,13 @@ def get_statistics():
     try:
         stats = db.get_statistics()
         
-        # 适配前端期望的数据格式
+        # 适配前端期望的数据格式 - 扁平化结构
         response_data = {
+            'total_papers': stats.get('total_papers', 0),
+            'completed_analyses': stats.get('total_analyses', 0),
+            'total_gaps': stats.get('total_gaps', 0),
+            'total_generated_code': stats.get('total_generated_code', 0),
+            # 保留嵌套结构供其他用途
             'user_stats': {
                 'total_papers': stats.get('total_papers', 0),
                 'total_analyses': stats.get('total_analyses', 0),
