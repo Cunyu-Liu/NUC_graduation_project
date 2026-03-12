@@ -67,6 +67,14 @@ class NUAAThesisConverter:
         style_h3.font.bold = True
         style_h3.paragraph_format.first_line_indent = Cm(0)
         
+        # 四级标题：小四号黑体，不加粗（用于(1) (2)等序号标题）
+        style_h4 = styles.add_style('CustomH4', WD_STYLE_TYPE.PARAGRAPH)
+        style_h4.font.name = 'Times New Roman'
+        style_h4._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
+        style_h4.font.size = Pt(12)
+        style_h4.font.bold = False
+        style_h4.paragraph_format.first_line_indent = Cm(0)
+        
         # 图表标题：五号宋体，居中（使用内置Caption样式修改，避免重名）
         try:
             style_cap = styles.add_style('CustomCaption', WD_STYLE_TYPE.PARAGRAPH)
@@ -195,13 +203,41 @@ class NUAAThesisConverter:
                 i += 1
                 continue
             
-            # 识别目录
-            if '目录' in line and len(line) < 10:
+            # 识别目录（排除主要符号表、参考文献等）
+            if line == '目录' or line == '## 目录' or line == '# 目录':
                 sect = self._add_section_break()
                 self._setup_section(sect)
                 self._set_no_page_number(sect)
                 self._add_header(sect)
                 self._add_heading('目录', 1)
+                i += 1
+                continue
+            
+            # 识别主要符号表
+            if line == '主要符号表' or line == '## 主要符号表':
+                sect = self._add_section_break()
+                self._setup_section(sect)
+                self._set_no_page_number(sect)
+                self._add_header(sect)
+                self._add_heading('主要符号表', 1)
+                i += 1
+                continue
+            
+            # 识别参考文献
+            if line == '参考文献' or line == '## 参考文献':
+                sect = self._add_section_break()
+                self._setup_section(sect)
+                self._add_header(sect)
+                self._add_heading('参考文献', 1)
+                i += 1
+                continue
+            
+            # 识别致谢
+            if line == '致谢' or line == '## 致谢':
+                sect = self._add_section_break()
+                self._setup_section(sect)
+                self._add_header(sect)
+                self._add_heading('致谢', 1)
                 i += 1
                 continue
             
@@ -240,6 +276,34 @@ class NUAAThesisConverter:
                 p = self.doc.add_paragraph()
                 p.style = 'CustomH3'
                 p.add_run(line[4:])
+                i += 1
+                continue
+            
+            # 处理四级标题
+            if line.startswith('#### '):
+                p = self.doc.add_paragraph()
+                p.style = 'CustomH4'
+                p.add_run(line[5:])
+                i += 1
+                continue
+            
+            # 处理无序列表项 (- 或 * 开头)
+            if re.match(r'^[-\*]\s+', line):
+                content = re.sub(r'^[-\*]\s+', '', line)
+                p = self.doc.add_paragraph(style='List Bullet')
+                p.paragraph_format.left_indent = Cm(0.74)
+                p.paragraph_format.first_line_indent = Cm(-0.37)
+                self._add_formatted_text(p, content)
+                i += 1
+                continue
+            
+            # 处理有序列表项 (1. 2. 等开头)
+            if re.match(r'^\d+\.\s+', line):
+                content = re.sub(r'^\d+\.\s+', '', line)
+                p = self.doc.add_paragraph(style='List Number')
+                p.paragraph_format.left_indent = Cm(0.74)
+                p.paragraph_format.first_line_indent = Cm(-0.37)
+                self._add_formatted_text(p, content)
                 i += 1
                 continue
             
@@ -325,7 +389,14 @@ class NUAAThesisConverter:
         run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
         
     def _add_heading(self, text, level):
-        style = 'CustomH1' if level == 1 else 'CustomH2' if level == 2 else 'CustomH3'
+        if level == 1:
+            style = 'CustomH1'
+        elif level == 2:
+            style = 'CustomH2'
+        elif level == 3:
+            style = 'CustomH3'
+        else:
+            style = 'CustomH4'
         p = self.doc.add_paragraph()
         p.style = style
         p.add_run(text)
@@ -334,15 +405,31 @@ class NUAAThesisConverter:
         """添加正文，处理粗体"""
         p = self.doc.add_paragraph()
         p.style = 'Normal'
-        
-        # 处理**粗体**
+        self._add_formatted_text(p, text)
+    
+    def _add_formatted_text(self, para, text):
+        """添加带格式的文本（粗体、斜体）"""
+        # 先处理粗体 **text**
         parts = re.split(r'(\*\*.*?\*\*)', text)
         for part in parts:
             if part.startswith('**') and part.endswith('**'):
-                run = p.add_run(part[2:-2])
+                run = para.add_run(part[2:-2])
                 run.bold = True
+                run.font.name = 'Times New Roman'
+                run._element.rPr.rFonts.set(qn('w:eastAsia'), '宋体')
             else:
-                p.add_run(part)
+                # 处理斜体 *text*
+                italic_parts = re.split(r'(\*[^*]+\*)', part)
+                for ipart in italic_parts:
+                    if ipart.startswith('*') and ipart.endswith('*') and len(ipart) > 2:
+                        run = para.add_run(ipart[1:-1])
+                        run.italic = True
+                        run.font.name = 'Times New Roman'
+                        run._element.rPr.rFonts.set(qn('w:eastAsia'), '宋体')
+                    else:
+                        run = para.add_run(ipart)
+                        run.font.name = 'Times New Roman'
+                        run._element.rPr.rFonts.set(qn('w:eastAsia'), '宋体')
                 
     def _add_code(self, code, lang):
         """添加代码块"""
