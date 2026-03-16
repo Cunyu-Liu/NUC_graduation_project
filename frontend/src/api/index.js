@@ -105,6 +105,14 @@ export default {
     })
   },
 
+  // 批量上传文件
+  uploadBatchFiles: (formData) => {
+    return api.post('/upload/batch', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000 // 5分钟超时
+    })
+  },
+
   // 获取文件列表
   getFiles: () => api.get('/files'),
 

@@ -91,7 +91,8 @@ class AsyncWorkflowEngine:
         pdf_path: str,
         paper_id: int = None,
         tasks: List[str] = None,
-        auto_generate_code: bool = True
+        auto_generate_code: bool = True,
+        user_id: int = None
     ) -> Dict[str, Any]:
         """
         执行完整的论文分析工作流
@@ -101,6 +102,7 @@ class AsyncWorkflowEngine:
             paper_id: 已存在的论文ID（如果提供，则跳过解析和保存）
             tasks: 要执行的任务列表
             auto_generate_code: 是否自动生成代码
+            user_id: 用户ID（用于用户隔离）
 
         Returns:
             Dict: 工作流执行结果
@@ -131,7 +133,7 @@ class AsyncWorkflowEngine:
                 print(f"\n[1/6] 使用已存在的论文 ID: {paper_id}")
                 result['paper_id'] = paper_id
                 # 从数据库获取论文记录（get_paper返回字典，不是对象）
-                paper_record_dict = self.db.get_paper(paper_id)
+                paper_record_dict = self.db.get_paper(paper_id, user_id=user_id)
                 if not paper_record_dict:
                     raise ValueError(f"论文 ID {paper_id} 不存在于数据库中")
                 # 重新解析PDF用于分析
@@ -513,23 +515,73 @@ class AsyncWorkflowEngine:
             }
 
     def _parse_gap_enrichment(self, response: str) -> Dict[str, str]:
-        """解析LLM返回的研究空白丰富信息"""
+        """解析LLM返回的研究空白丰富信息 - 增强版，支持修复不完整的JSON"""
         import json
+        import re
+
+        def extract_json_str(resp: str) -> str:
+            """从响应中提取JSON字符串"""
+            if "```json" in resp:
+                start = resp.find("```json") + 7
+                end = resp.find("```", start)
+                if end == -1:
+                    end = len(resp)
+                return resp[start:end].strip()
+            elif "```" in resp:
+                start = resp.find("```") + 3
+                end = resp.find("```", start)
+                if end == -1:
+                    end = len(resp)
+                return resp[start:end].strip()
+            
+            # 尝试找到JSON对象
+            start = resp.find('{')
+            if start == -1:
+                return resp.strip()
+            
+            brace_count = 0
+            end = start
+            for i, char in enumerate(resp[start:]):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = start + i + 1
+                        break
+            return resp[start:end].strip()
+
+        def fix_json(json_str: str) -> str:
+            """修复常见的JSON格式问题"""
+            # 处理未转义的换行符
+            json_str = json_str.replace('\n', '\\n').replace('\r', '\\r')
+            
+            # 处理未闭合的字符串
+            quote_count = json_str.count('"')
+            if quote_count % 2 != 0:
+                json_str += '"'
+            
+            # 处理未闭合的数组或对象
+            open_braces = json_str.count('{') - json_str.count('}')
+            open_brackets = json_str.count('[') - json_str.count(']')
+            json_str += '}' * max(0, open_braces)
+            json_str += ']' * max(0, open_brackets)
+            
+            # 移除尾部逗号
+            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+            
+            return json_str
 
         try:
-            # 尝试从markdown代码块中提取JSON
-            if "```json" in response:
-                start = response.find("```json") + 7
-                end = response.find("```", start)
-                json_str = response[start:end].strip()
-            elif "```" in response:
-                start = response.find("```") + 3
-                end = response.find("```", start)
-                json_str = response[start:end].strip()
-            else:
-                json_str = response.strip()
-
-            data = json.loads(json_str)
+            json_str = extract_json_str(response)
+            
+            # 尝试解析
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError:
+                # 尝试修复JSON
+                fixed_json = fix_json(json_str)
+                data = json.loads(fixed_json)
 
             return {
                 'gap_type': data.get('gap_type', 'methodological'),
@@ -598,7 +650,8 @@ class AsyncWorkflowEngine:
     async def batch_process_papers(
         self,
         pdf_paths: List[str],
-        tasks: List[str] = None
+        tasks: List[str] = None,
+        user_id: int = None
     ) -> Dict[str, Any]:
         """
         批量处理论文
@@ -606,6 +659,7 @@ class AsyncWorkflowEngine:
         Args:
             pdf_paths: PDF文件路径列表
             tasks: 要执行的任务
+            user_id: 用户ID（用于用户隔离）
 
         Returns:
             Dict: 批量处理结果
@@ -618,7 +672,7 @@ class AsyncWorkflowEngine:
 
         # 并发处理
         results = await asyncio.gather(
-            *[self.execute_paper_workflow(pdf_path, tasks) for pdf_path in pdf_paths],
+            *[self.execute_paper_workflow(pdf_path, tasks=tasks, user_id=user_id) for pdf_path in pdf_paths],
             return_exceptions=True
         )
 

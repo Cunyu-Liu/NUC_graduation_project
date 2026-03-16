@@ -521,30 +521,82 @@ class ResearchGapMiner:
         response: str,
         papers: List[ParsedPaper]
     ) -> List[Dict[str, Any]]:
-        """解析LLM的响应，提取结构化的研究空白（旧版兼容）"""
+        """解析LLM的响应，提取结构化的研究空白（旧版兼容）- 增强版"""
         gaps = []
+        import re
+
+        def extract_json_str(resp: str) -> str:
+            """从响应中提取JSON字符串"""
+            if "```json" in resp:
+                start = resp.find("```json") + 7
+                end = resp.find("```", start)
+                if end == -1:
+                    end = len(resp)
+                return resp[start:end].strip()
+            elif "```" in resp:
+                start = resp.find("```") + 3
+                end = resp.find("```", start)
+                if end == -1:
+                    end = len(resp)
+                return resp[start:end].strip()
+            
+            start = resp.find('{')
+            if start == -1:
+                return resp.strip()
+            
+            brace_count = 0
+            end = start
+            for i, char in enumerate(resp[start:]):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = start + i + 1
+                        break
+            return resp[start:end].strip()
+
+        def fix_json(json_str: str) -> str:
+            """修复常见的JSON格式问题"""
+            json_str = json_str.replace('\n', '\\n').replace('\r', '\\r')
+            
+            quote_count = json_str.count('"')
+            if quote_count % 2 != 0:
+                json_str += '"'
+            
+            open_braces = json_str.count('{') - json_str.count('}')
+            open_brackets = json_str.count('[') - json_str.count(']')
+            json_str += '}' * max(0, open_braces)
+            json_str += ']' * max(0, open_brackets)
+            
+            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+            
+            return json_str
 
         try:
-            # 尝试解析为JSON
-            if "```json" in response:
-                json_start = response.find("```json") + 7
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
+            json_str = extract_json_str(response)
+            
+            try:
                 gaps_data = json.loads(json_str)
+            except json.JSONDecodeError:
+                fixed_json = fix_json(json_str)
+                gaps_data = json.loads(fixed_json)
 
-                # 转换为ResearchGap对象
-                for gap_type, gap_list in gaps_data.items():
+            # 转换为ResearchGap对象
+            for gap_type, gap_list in gaps_data.items():
+                if isinstance(gap_list, list):
                     for gap in gap_list:
-                        gaps.append({
-                            "gap_type": gap_type,
-                            "description": gap.get("description", ""),
-                            "importance": gap.get("importance", "medium"),
-                            "difficulty": gap.get("difficulty", "medium"),
-                            "potential_approach": gap.get("potential_approach", ""),
-                            "expected_impact": gap.get("expected_impact", ""),
-                            "related_papers": [],
-                            "confidence": 0.7
-                        })
+                        if isinstance(gap, dict):
+                            gaps.append({
+                                "gap_type": gap_type,
+                                "description": gap.get("description", ""),
+                                "importance": gap.get("importance", "medium"),
+                                "difficulty": gap.get("difficulty", "medium"),
+                                "potential_approach": gap.get("potential_approach", ""),
+                                "expected_impact": gap.get("expected_impact", ""),
+                                "related_papers": [],
+                                "confidence": 0.7
+                            })
 
         except Exception as e:
             print(f"解析LLM响应失败: {e}")

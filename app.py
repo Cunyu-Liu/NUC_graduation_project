@@ -576,8 +576,9 @@ def change_password():
 # ============================================================================
 
 @app.route('/api/papers', methods=['GET'])
+@auth_required
 def get_papers():
-    """获取论文列表（支持搜索和过滤）"""
+    """获取论文列表（支持搜索和过滤）- 支持用户隔离"""
     try:
         skip = int(request.args.get('skip', 0))
         limit = int(request.args.get('limit', 100))  # 增加默认限制
@@ -586,13 +587,17 @@ def get_papers():
         year_to = request.args.get('year_to', type=int)
         venue = request.args.get('venue', '')
 
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
+
         papers = db.get_papers(
             skip=skip,
             limit=limit,
             search=search,
             year_from=year_from,
             year_to=year_to,
-            venue=venue
+            venue=venue,
+            user_id=user_id
         )
 
         # 为每篇论文添加analyzed字段
@@ -618,12 +623,16 @@ def get_papers():
 
 
 @app.route('/api/papers/<int:paper_id>', methods=['GET'])
+@auth_required
 def get_paper_detail(paper_id: int):
-    """获取论文详情"""
+    """获取论文详情 - 支持用户隔离"""
     try:
-        paper = db.get_paper(paper_id)
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
+        
+        paper = db.get_paper(paper_id, user_id=user_id)
         if not paper:
-            return jsonify(create_response(success=False, error="论文不存在")), 404
+            return jsonify(create_response(success=False, error="论文不存在或无权限访问")), 404
 
         # 获取分析历史
         analyses = db.get_analyses_by_paper(paper_id)
@@ -640,18 +649,25 @@ def get_paper_detail(paper_id: int):
             }
         ))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
 @app.route('/api/papers/<int:paper_id>', methods=['PUT'])
+@auth_required
 def update_paper(paper_id: int):
-    """更新论文信息"""
+    """更新论文信息 - 支持用户隔离"""
     try:
         data = request.get_json()
-        paper = db.update_paper(paper_id, data)
+        
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
+        
+        paper = db.update_paper(paper_id, data, user_id=user_id)
 
         if not paper:
-            return jsonify(create_response(success=False, error="论文不存在")), 404
+            return jsonify(create_response(success=False, error="论文不存在或无权限修改")), 404
 
         return jsonify(create_response(
             success=True,
@@ -659,33 +675,48 @@ def update_paper(paper_id: int):
             message="论文更新成功"
         ))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
 @app.route('/api/papers/<int:paper_id>', methods=['DELETE'])
+@auth_required
 def delete_paper(paper_id: int):
-    """删除论文"""
+    """删除论文 - 支持用户隔离"""
     try:
-        success = db.delete_paper(paper_id)
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
+        
+        success = db.delete_paper(paper_id, user_id=user_id)
         if not success:
-            return jsonify(create_response(success=False, error="论文不存在")), 404
+            return jsonify(create_response(success=False, error="论文不存在或无权限删除")), 404
 
         return jsonify(create_response(
             success=True,
             message="论文删除成功"
         ))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
 @app.route('/api/papers/batch-delete', methods=['POST'])
+@auth_required
 def batch_delete_papers():
-    """批量删除论文"""
+    """批量删除论文 - 支持用户隔离"""
     try:
         data = request.get_json()
         paper_ids = data.get('paper_ids', [])
 
-        count = db.batch_delete_papers(paper_ids)
+        if not paper_ids:
+            return jsonify(create_response(success=False, error="没有选择要删除的论文")), 400
+
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
+
+        count = db.batch_delete_papers(paper_ids, user_id=user_id)
 
         return jsonify(create_response(
             success=True,
@@ -693,10 +724,13 @@ def batch_delete_papers():
             message=f"成功删除 {count} 篇论文"
         ))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
 @app.route('/api/papers/batch-create', methods=['POST'])
+@auth_required
 def batch_create_papers():
     """批量创建论文"""
     try:
@@ -721,6 +755,7 @@ def batch_create_papers():
 
 
 @app.route('/api/papers/batch-get', methods=['POST'])
+@auth_required
 def batch_get_papers():
     """批量获取论文详情"""
     try:
@@ -745,6 +780,7 @@ def batch_get_papers():
 
 
 @app.route('/api/papers/batch-update', methods=['POST'])
+@auth_required
 def batch_update_papers():
     """批量更新论文"""
     try:
@@ -773,6 +809,7 @@ def batch_update_papers():
 # ============================================================================
 
 @app.route('/api/upload', methods=['POST'])
+@auth_required
 def upload_file():
     """上传PDF文件"""
     try:
@@ -830,10 +867,14 @@ def upload_file():
             'keywords': paper.metadata.keywords
         }
 
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
+
         print(f"[DEBUG] 准备创建论文记录: {paper_data.get('title', 'Unknown')}")
         print(f"[DEBUG] paper_data类型: {type(paper_data)}")
+        print(f"[DEBUG] 用户ID: {user_id}")
 
-        paper_record = db.create_paper(paper_data)
+        paper_record = db.create_paper(paper_data, user_id=user_id)
 
         print(f"[DEBUG] 论文记录创建成功: {paper_record}")
 
@@ -868,6 +909,7 @@ def upload_file():
 
 
 @app.route('/api/upload/batch', methods=['POST'])
+@auth_required
 def batch_upload_files():
     """批量上传PDF文件（同步处理确保所有文件都被保存）"""
     try:
@@ -946,7 +988,10 @@ def batch_upload_files():
                     'keywords': paper.metadata.keywords
                 }
 
-                paper_record = db.create_paper(paper_data)
+                # 获取当前用户ID
+                user_id = getattr(request, 'current_user_id', None)
+
+                paper_record = db.create_paper(paper_data, user_id=user_id)
                 results['success'].append({
                     'filename': original_filename,
                     'paper_id': paper_record['id'],
@@ -1020,6 +1065,7 @@ def get_task_status(task_id: int):
 
 
 @app.route('/api/papers/<int:paper_id>/analysis', methods=['GET'])
+@auth_required
 def get_paper_analysis(paper_id: int):
     """获取论文的最新分析结果"""
     try:
@@ -1062,22 +1108,25 @@ def get_paper_analysis(paper_id: int):
 
 
 @app.route('/api/analyze', methods=['POST'])
-async def analyze_paper():
+@auth_required
+def analyze_paper():
     """分析论文（完整工作流）"""
     try:
         import traceback
+        import asyncio
         data = request.get_json()
         paper_id = data.get('paper_id')
         tasks = data.get('tasks', ['summary', 'keypoints', 'gaps'])
         auto_generate_code = data.get('auto_generate_code', True)
+        user_id = getattr(request, 'current_user_id', None)
 
-        print(f"[DEBUG] 分析请求: paper_id={paper_id}, tasks={tasks}")
+        print(f"[DEBUG] 分析请求: paper_id={paper_id}, tasks={tasks}, user_id={user_id}")
 
         if not paper_id:
             return jsonify(create_response(success=False, error="缺少paper_id")), 400
 
-        # 获取论文
-        paper = db.get_paper(paper_id)
+        # 获取论文（支持用户隔离）
+        paper = db.get_paper(paper_id, user_id=user_id)
         if not paper:
             print(f"[ERROR] 论文不存在: paper_id={paper_id}")
             return jsonify(create_response(success=False, error="论文不存在")), 404
@@ -1105,12 +1154,13 @@ async def analyze_paper():
         # 执行工作流 - 传递paper_id避免重复保存
         emit_progress(10, "开始分析论文", "初始化")
 
-        result = await workflow.execute_paper_workflow(
+        result = asyncio.run(workflow.execute_paper_workflow(
             pdf_path=str(pdf_path),
             paper_id=paper_id,  # 传递已存在的论文ID
             tasks=tasks,
-            auto_generate_code=auto_generate_code
-        )
+            auto_generate_code=auto_generate_code,
+            user_id=user_id  # 传递用户ID支持用户隔离
+        ))
 
         # 从数据库获取完整的分析结果
         analysis_id = result.get('analysis_id')
@@ -1155,21 +1205,24 @@ async def analyze_paper():
 
 
 @app.route('/api/batch-analyze', methods=['POST'])
-async def batch_analyze_papers():
+@auth_required
+def batch_analyze_papers():
     """批量分析论文"""
     try:
         import traceback
+        import asyncio
         data = request.get_json()
         paper_ids = data.get('paper_ids', [])
         tasks = data.get('tasks', ['summary', 'keypoints'])
+        user_id = getattr(request, 'current_user_id', None)
 
         if not paper_ids:
             return jsonify(create_response(success=False, error="缺少paper_ids")), 400
 
-        # 获取论文
+        # 获取论文（支持用户隔离）
         pdf_paths = []
         for paper_id in paper_ids:
-            paper = db.get_paper(paper_id)
+            paper = db.get_paper(paper_id, user_id=user_id)
             if paper:
                 # paper 是字典,需要用字典方式访问
                 pdf_filename = paper.get('pdf_path')
@@ -1184,10 +1237,11 @@ async def batch_analyze_papers():
         # 批量处理
         emit_progress(10, f"开始批量处理 {len(pdf_paths)} 篇论文", "初始化")
 
-        summary = await workflow.batch_process_papers(
+        summary = asyncio.run(workflow.batch_process_papers(
             pdf_paths=pdf_paths,
-            tasks=tasks
-        )
+            tasks=tasks,
+            user_id=user_id
+        ))
 
         emit_progress(100, "批量处理完成", "完成")
 
@@ -1205,6 +1259,7 @@ async def batch_analyze_papers():
 
 
 @app.route('/api/cluster', methods=['POST'])
+@auth_required
 def cluster_papers():
     """主题聚类分析"""
     try:
@@ -1215,6 +1270,8 @@ def cluster_papers():
         data = request.get_json()
         if not data:
             return jsonify(create_response(success=False, error="请求数据为空")), 400
+        
+        user_id = getattr(request, 'current_user_id', None)
 
         paper_ids = data.get('paper_ids', [])
         n_clusters = data.get('n_clusters', 5)
@@ -1241,7 +1298,7 @@ def cluster_papers():
 
         for paper_id in paper_ids:
             try:
-                paper = db.get_paper(paper_id)
+                paper = db.get_paper(paper_id, user_id=user_id)
                 if paper:
                     pdf_filename = paper.get('pdf_path')
                     if pdf_filename:
@@ -1528,6 +1585,7 @@ def export_cluster_report():
 # ============================================================================
 
 @app.route('/api/gaps/<int:gap_id>/generate-code', methods=['POST'])
+@auth_required
 async def generate_gap_code(gap_id: int):
     """为研究空白生成代码"""
     try:
@@ -1591,6 +1649,7 @@ async def generate_gap_code(gap_id: int):
 
 
 @app.route('/api/code/<int:code_id>', methods=['GET'])
+@auth_required
 def get_code(code_id: int):
     """获取生成的代码"""
     try:
@@ -1607,6 +1666,7 @@ def get_code(code_id: int):
 
 
 @app.route('/api/code/<int:code_id>/modify', methods=['POST'])
+@auth_required
 async def modify_code(code_id: int):
     """修改生成的代码"""
     try:
@@ -1642,12 +1702,16 @@ async def modify_code(code_id: int):
 # ============================================================================
 
 @app.route('/api/knowledge-graph', methods=['GET'])
+@auth_required
 def get_knowledge_graph():
-    """获取知识图谱数据"""
+    """获取知识图谱数据 - 支持用户隔离"""
     try:
         paper_ids = request.args.getlist('paper_ids', type=int)
+        
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
 
-        graph = db.get_paper_graph(paper_ids if paper_ids else None)
+        graph = db.get_paper_graph(paper_ids if paper_ids else None, user_id=user_id)
 
         return jsonify(create_response(
             success=True,
@@ -1655,6 +1719,8 @@ def get_knowledge_graph():
             message=f"获取知识图谱: {len(graph['nodes'])} 个节点, {len(graph['edges'])} 条边"
         ))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
@@ -1663,10 +1729,14 @@ def get_knowledge_graph():
 # ============================================================================
 
 @app.route('/api/statistics', methods=['GET'])
+@auth_required
 def get_statistics():
-    """获取统计信息"""
+    """获取统计信息 - 支持用户隔离"""
     try:
-        stats = db.get_statistics()
+        # 获取当前用户ID
+        user_id = getattr(request, 'current_user_id', None)
+        
+        stats = db.get_statistics(user_id=user_id)
         
         # 适配前端期望的数据格式 - 扁平化结构
         response_data = {
@@ -1688,10 +1758,13 @@ def get_statistics():
             data=response_data
         ))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify(create_response(success=False, error=str(e))), 500
 
 
 @app.route('/api/gaps/priority', methods=['GET'])
+@auth_required
 def get_priority_gaps():
     """获取高优先级研究空白（改为返回所有研究空白）"""
     try:
@@ -1711,6 +1784,7 @@ def get_priority_gaps():
 
 
 @app.route('/api/gaps/<int:gap_id>', methods=['GET'])
+@auth_required
 def get_gap_detail(gap_id: int):
     """获取研究空白详情"""
     try:
@@ -1727,6 +1801,7 @@ def get_gap_detail(gap_id: int):
 
 
 @app.route('/api/gaps/<int:gap_id>', methods=['PUT'])
+@auth_required
 def update_gap_detail(gap_id: int):
     """更新研究空白详情"""
     try:
@@ -1768,6 +1843,7 @@ def update_gap_detail(gap_id: int):
 
 
 @app.route('/api/code/<int:code_id>/versions', methods=['GET'])
+@auth_required
 def get_code_versions(code_id: int):
     """获取代码版本历史"""
     try:
@@ -1786,6 +1862,7 @@ def get_code_versions(code_id: int):
 
 
 @app.route('/api/knowledge-graph/build', methods=['POST'])
+@auth_required
 async def build_knowledge_graph():
     """手动构建知识图谱"""
     try:
@@ -1817,6 +1894,7 @@ async def build_knowledge_graph():
 
 
 @app.route('/api/relations', methods=['POST'])
+@auth_required
 def add_relation():
     """手动添加论文关系"""
     try:
@@ -2269,6 +2347,7 @@ def sync_papers_to_vector_store():
     try:
         data = request.get_json() or {}
         paper_ids = data.get('paper_ids', [])
+        user_id = getattr(request, 'current_user_id', None)
         
         manager = get_vector_store_manager_instance()
         
@@ -2278,8 +2357,8 @@ def sync_papers_to_vector_store():
                 error="向量存储服务不可用，请检查 Milvus 连接"
             )), 503
         
-        # 同步论文
-        result = manager.sync_papers_from_db(paper_ids if paper_ids else None)
+        # 同步论文（传递 user_id 支持用户隔离）
+        result = manager.sync_papers_from_db(paper_ids if paper_ids else None, user_id=user_id)
         
         if 'error' in result:
             return jsonify(create_response(success=False, error=result['error'])), 500

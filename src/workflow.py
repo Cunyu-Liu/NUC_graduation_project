@@ -170,18 +170,63 @@ async def extract_keypoints_node(state: PaperAnalysisState) -> PaperAnalysisStat
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         result = response.content
 
-        # 解析JSON结果
+        # 解析JSON结果 - 增强版，支持修复不完整的JSON
         import json
         import re
 
-        # 提取JSON
-        json_match = re.search(r'```json\s*(.*?)\s*```', result, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1)
-        else:
-            json_str = result
+        def extract_json_str(resp: str) -> str:
+            """从响应中提取JSON字符串"""
+            json_match = re.search(r'```json\s*(.*?)\s*```', resp, re.DOTALL)
+            if json_match:
+                return json_match.group(1).strip()
+            
+            json_match = re.search(r'```\s*(.*?)\s*```', resp, re.DOTALL)
+            if json_match:
+                return json_match.group(1).strip()
+            
+            start = resp.find('{')
+            if start == -1:
+                return resp.strip()
+            
+            brace_count = 0
+            end = start
+            for i, char in enumerate(resp[start:]):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = start + i + 1
+                        break
+            return resp[start:end].strip()
 
-        keypoints = json.loads(json_str)
+        def fix_json(json_str: str) -> str:
+            """修复常见的JSON格式问题"""
+            json_str = json_str.replace('\n', '\\n').replace('\r', '\\r')
+            
+            quote_count = json_str.count('"')
+            if quote_count % 2 != 0:
+                json_str += '"'
+            
+            open_braces = json_str.count('{') - json_str.count('}')
+            open_brackets = json_str.count('[') - json_str.count(']')
+            json_str += '}' * max(0, open_braces)
+            json_str += ']' * max(0, open_brackets)
+            
+            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+            
+            return json_str
+
+        # 提取JSON
+        json_str = extract_json_str(result)
+        
+        # 尝试解析
+        try:
+            keypoints = json.loads(json_str)
+        except json.JSONDecodeError:
+            # 尝试修复JSON
+            fixed_json = fix_json(json_str)
+            keypoints = json.loads(fixed_json)
 
         # 验证结构
         required_fields = ["innovations", "methods", "experiments",

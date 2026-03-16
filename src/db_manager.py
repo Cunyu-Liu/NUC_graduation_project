@@ -78,13 +78,22 @@ class DatabaseManager:
     # Paper CRUD操作
     # ============================================================================
 
-    def create_paper(self, paper_data: Dict[str, Any]) -> Dict[str, Any]:
-        """创建论文记录"""
+    def create_paper(self, paper_data: Dict[str, Any], user_id: int = None) -> Dict[str, Any]:
+        """创建论文记录 - 支持用户隔离"""
         with self.get_session() as session:
-            # 检查是否已存在（通过pdf_hash）
-            existing = session.query(Paper).filter(
+            # 检查是否已存在（通过user_id和pdf_hash联合唯一）
+            query = session.query(Paper).filter(
                 Paper.pdf_hash == paper_data.get('pdf_hash')
-            ).first()
+            )
+            
+            # 如果指定了用户，则检查该用户是否已有此论文
+            if user_id:
+                query = query.filter(Paper.user_id == user_id)
+            else:
+                # 未登录用户上传的论文，只检查无user_id的记录
+                query = query.filter(Paper.user_id.is_(None))
+            
+            existing = query.first()
 
             if existing:
                 print(f"  论文已存在: {existing.title}")
@@ -93,6 +102,10 @@ class DatabaseManager:
             # 过滤掉不是Paper模型的字段(authors和keywords通过关系管理)
             paper_fields = {k: v for k, v in paper_data.items()
                           if k not in ['authors', 'keywords']}
+            
+            # 添加用户ID
+            if user_id:
+                paper_fields['user_id'] = user_id
 
             # 创建论文
             paper = Paper(**paper_fields)
@@ -114,10 +127,18 @@ class DatabaseManager:
             print(f"  ✓ 创建论文: {paper.title[:60]}")
             return paper.to_dict()
 
-    def get_paper(self, paper_id: int) -> Optional[Dict[str, Any]]:
-        """获取论文详情"""
+    def get_paper(self, paper_id: int, user_id: int = None) -> Optional[Dict[str, Any]]:
+        """获取论文详情 - 支持用户隔离"""
         with self.get_session() as session:
-            paper = session.query(Paper).filter(Paper.id == paper_id).first()
+            query = session.query(Paper).filter(Paper.id == paper_id)
+            
+            # 用户隔离
+            if user_id:
+                query = query.filter(Paper.user_id == user_id)
+            else:
+                query = query.filter(Paper.user_id.is_(None))
+            
+            paper = query.first()
             return paper.to_dict() if paper else None
 
     def get_papers(
@@ -127,11 +148,19 @@ class DatabaseManager:
         search: str = None,
         year_from: int = None,
         year_to: int = None,
-        venue: str = None
+        venue: str = None,
+        user_id: int = None
     ) -> List[Dict[str, Any]]:
-        """获取论文列表（支持搜索和过滤）"""
+        """获取论文列表（支持搜索和过滤）- 支持用户隔离"""
         with self.get_session() as session:
             query = session.query(Paper)
+
+            # 用户隔离：只返回指定用户的论文
+            if user_id:
+                query = query.filter(Paper.user_id == user_id)
+            else:
+                # 未登录用户只能看到无user_id的论文（公共论文或旧数据）
+                query = query.filter(Paper.user_id.is_(None))
 
             # 搜索
             if search:
@@ -159,10 +188,18 @@ class DatabaseManager:
             papers = query.all()
             return [paper.to_dict() for paper in papers]
 
-    def update_paper(self, paper_id: int, paper_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """更新论文信息"""
+    def update_paper(self, paper_id: int, paper_data: Dict[str, Any], user_id: int = None) -> Optional[Dict[str, Any]]:
+        """更新论文信息 - 支持用户隔离"""
         with self.get_session() as session:
-            paper = session.query(Paper).filter(Paper.id == paper_id).first()
+            query = session.query(Paper).filter(Paper.id == paper_id)
+            
+            # 用户隔离
+            if user_id:
+                query = query.filter(Paper.user_id == user_id)
+            else:
+                query = query.filter(Paper.user_id.is_(None))
+            
+            paper = query.first()
             if not paper:
                 return None
 
@@ -175,10 +212,18 @@ class DatabaseManager:
             session.refresh(paper)
             return paper.to_dict()
 
-    def delete_paper(self, paper_id: int) -> bool:
-        """删除论文（级联删除相关数据）"""
+    def delete_paper(self, paper_id: int, user_id: int = None) -> bool:
+        """删除论文（级联删除相关数据）- 支持用户隔离"""
         with self.get_session() as session:
-            paper = session.query(Paper).filter(Paper.id == paper_id).first()
+            query = session.query(Paper).filter(Paper.id == paper_id)
+            
+            # 用户隔离：只删除当前用户的论文
+            if user_id:
+                query = query.filter(Paper.user_id == user_id)
+            else:
+                query = query.filter(Paper.user_id.is_(None))
+            
+            paper = query.first()
             if not paper:
                 return False
 
@@ -187,10 +232,19 @@ class DatabaseManager:
             print(f"  ✓ 删除论文: {paper.title}")
             return True
 
-    def batch_delete_papers(self, paper_ids: List[int]) -> int:
-        """批量删除论文"""
+    def batch_delete_papers(self, paper_ids: List[int], user_id: int = None) -> int:
+        """批量删除论文 - 支持用户隔离"""
         with self.get_session() as session:
-            count = session.query(Paper).filter(Paper.id.in_(paper_ids)).delete()
+            query = session.query(Paper).filter(Paper.id.in_(paper_ids))
+            
+            # 用户隔离：只删除当前用户的论文
+            if user_id:
+                query = query.filter(Paper.user_id == user_id)
+            else:
+                query = query.filter(Paper.user_id.is_(None))
+            
+            # 使用 synchronize_session=False 提高性能
+            count = query.delete(synchronize_session=False)
             session.commit()
             print(f"  ✓ 批量删除 {count} 篇论文")
             return count
@@ -242,19 +296,27 @@ class DatabaseManager:
             session.commit()
         return created_papers
 
-    def batch_get_papers(self, paper_ids: List[int]) -> List[Dict[str, Any]]:
-        """批量获取论文详情"""
+    def batch_get_papers(self, paper_ids: List[int], user_id: int = None) -> List[Dict[str, Any]]:
+        """批量获取论文详情 - 支持用户隔离"""
         with self.get_session() as session:
-            papers = session.query(Paper).filter(Paper.id.in_(paper_ids)).all()
+            query = session.query(Paper).filter(Paper.id.in_(paper_ids))
+            
+            # 用户隔离
+            if user_id:
+                query = query.filter(Paper.user_id == user_id)
+            else:
+                query = query.filter(Paper.user_id.is_(None))
+            
+            papers = query.all()
             return [paper.to_dict() for paper in papers]
 
-    def batch_update_papers(self, updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def batch_update_papers(self, updates: List[Dict[str, Any]], user_id: int = None) -> List[Dict[str, Any]]:
         """
-        批量更新论文
+        批量更新论文 - 支持用户隔离
 
         Args:
             updates: 更新列表，每个元素包含 'paper_id' 和要更新的字段
-            例如: [{'paper_id': 1, 'title': '新标题'}, {'paper_id': 2, 'year': 2024}]
+            user_id: 用户ID，用于用户隔离
 
         Returns:
             更新后的论文列表
@@ -267,9 +329,17 @@ class DatabaseManager:
                     if not paper_id:
                         continue
 
-                    paper = session.query(Paper).filter(Paper.id == paper_id).first()
+                    query = session.query(Paper).filter(Paper.id == paper_id)
+                    
+                    # 用户隔离
+                    if user_id:
+                        query = query.filter(Paper.user_id == user_id)
+                    else:
+                        query = query.filter(Paper.user_id.is_(None))
+                    
+                    paper = query.first()
                     if not paper:
-                        print(f"  ✗ 论文不存在: paper_id={paper_id}")
+                        print(f"  ✗ 论文不存在或无权限: paper_id={paper_id}")
                         continue
 
                     # 更新字段
@@ -494,18 +564,33 @@ class DatabaseManager:
             ).all()
             return [r.to_dict() for r in relations]
 
-    def get_paper_graph(self, paper_ids: List[int] = None) -> Dict[str, Any]:
-        """获取论文关系图数据"""
+    def get_paper_graph(self, paper_ids: List[int] = None, user_id: int = None) -> Dict[str, Any]:
+        """获取论文关系图数据 - 支持用户隔离"""
         with self.get_session() as session:
-            query = session.query(Relation)
-
+            # 首先获取用户可访问的论文ID列表
+            user_papers_query = session.query(Paper.id)
+            if user_id:
+                user_papers_query = user_papers_query.filter(Paper.user_id == user_id)
+            else:
+                user_papers_query = user_papers_query.filter(Paper.user_id.is_(None))
+            
+            user_paper_ids = {p[0] for p in user_papers_query.all()}
+            
+            # 如果指定了paper_ids，只保留用户有权限访问的
             if paper_ids:
-                query = query.filter(
-                    or_(
-                        Relation.source_id.in_(paper_ids),
-                        Relation.target_id.in_(paper_ids)
-                    )
+                allowed_paper_ids = set(paper_ids) & user_paper_ids
+                if not allowed_paper_ids:
+                    return {'nodes': {}, 'edges': []}
+            else:
+                allowed_paper_ids = user_paper_ids
+            
+            # 查询这些论文之间的关系
+            query = session.query(Relation).filter(
+                or_(
+                    Relation.source_id.in_(allowed_paper_ids),
+                    Relation.target_id.in_(allowed_paper_ids)
                 )
+            )
 
             relations = query.all()
 
@@ -520,15 +605,17 @@ class DatabaseManager:
                 # 跳过同年发表关系
                 if rel.relation_type in filtered_relations:
                     continue
-                    
-                nodes.add(rel.source_id)
-                nodes.add(rel.target_id)
-                edges.append({
-                    'source': rel.source_id,
-                    'target': rel.target_id,
-                    'type': rel.relation_type,
-                    'strength': rel.strength
-                })
+                
+                # 只包含用户有权限访问的节点
+                if rel.source_id in allowed_paper_ids and rel.target_id in allowed_paper_ids:
+                    nodes.add(rel.source_id)
+                    nodes.add(rel.target_id)
+                    edges.append({
+                        'source': rel.source_id,
+                        'target': rel.target_id,
+                        'type': rel.relation_type,
+                        'strength': rel.strength
+                    })
 
             # 获取节点信息
             if nodes:
@@ -628,24 +715,57 @@ class DatabaseManager:
         )
         session.add(paper_keyword)
 
-    def get_statistics(self) -> Dict[str, Any]:
-        """获取数据库统计信息"""
+    def get_statistics(self, user_id: int = None) -> Dict[str, Any]:
+        """获取数据库统计信息 - 支持用户隔离"""
         with self.get_session() as session:
+            # 论文统计 - 用户隔离
+            papers_query = session.query(Paper)
+            if user_id:
+                papers_query = papers_query.filter(Paper.user_id == user_id)
+            else:
+                papers_query = papers_query.filter(Paper.user_id.is_(None))
+            
+            # 获取用户的论文ID列表
+            user_paper_ids = [p[0] for p in papers_query.with_entities(Paper.id).all()]
+            
+            # 分析统计 - 基于用户的论文
+            analyses_query = session.query(Analysis)
+            if user_paper_ids:
+                analyses_query = analyses_query.filter(Analysis.paper_id.in_(user_paper_ids))
+            else:
+                analyses_query = analyses_query.filter(False)  # 无论文则返回0
+            
+            # 研究空白统计 - 基于用户的分析
+            gaps_query = session.query(ResearchGap)
+            if user_paper_ids:
+                # 通过 analysis -> paper 关联
+                gaps_query = gaps_query.join(Analysis).filter(Analysis.paper_id.in_(user_paper_ids))
+            else:
+                gaps_query = gaps_query.filter(False)
+            
+            # 关系统计 - 基于用户的论文
+            relations_query = session.query(Relation)
+            if user_paper_ids:
+                relations_query = relations_query.filter(
+                    or_(
+                        Relation.source_id.in_(user_paper_ids),
+                        Relation.target_id.in_(user_paper_ids)
+                    )
+                )
+            else:
+                relations_query = relations_query.filter(False)
+            
             return {
-                'total_papers': session.query(Paper).count(),
-                'total_authors': session.query(Author).count(),
-                'total_keywords': session.query(Keyword).count(),
-                'total_analyses': session.query(Analysis).count(),
-                'total_gaps': session.query(ResearchGap).count(),
-                'total_generated_code': session.query(GeneratedCode).count(),
-                'total_relations': session.query(Relation).count(),
-                'total_users': session.query(User).count(),
-                'completed_analyses': session.query(Analysis).filter(
-                    Analysis.status == 'completed'
-                ).count(),
-                'pending_tasks': session.query(Task).filter(
-                    Task.status == 'pending'
-                ).count()
+                'total_papers': papers_query.count(),
+                'total_authors': session.query(Author).count(),  # 作者全局共享
+                'total_keywords': session.query(Keyword).count(),  # 关键词全局共享
+                'total_analyses': analyses_query.count(),
+                'total_gaps': gaps_query.count(),
+                'total_generated_code': session.query(GeneratedCode).count(),  # 通过gap关联
+                'total_relations': relations_query.count(),
+                'total_users': session.query(User).count() if not user_id else 1,
+                'completed_analyses': analyses_query.filter(Analysis.status == 'completed').count(),
+                'pending_tasks': session.query(Task).filter(Task.status == 'pending').count()
             }
 
     # ============================================================================

@@ -57,7 +57,7 @@ import { computed, ref } from 'vue'
 import { useStore } from 'vuex'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
-import axios from 'axios'
+import api from '@/api'
 
 export default {
   name: 'UploadDialog',
@@ -124,17 +124,12 @@ export default {
 
         console.log(`[DEBUG] 开始批量上传 ${fileList.value.length} 个文件`)
 
-        const response = await axios.post('/api/upload/batch', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          timeout: 300000 // 5分钟超时
-        })
+        const response = await api.uploadBatchFiles(formData)
 
-        console.log('[DEBUG] 批量上传响应:', response.data)
+        console.log('[DEBUG] 批量上传响应:', response)
 
-        if (response.data.success) {
-          const result = response.data.data
+        if (response.success) {
+          const result = response.data
           const successCount = result.success?.length || 0
           const failCount = result.failed?.length || 0
 
@@ -172,8 +167,8 @@ export default {
         console.error('[ERROR] 批量上传失败:', error)
 
         let errorMsg = '上传失败'
-        if (error.response?.data?.error) {
-          errorMsg = error.response.data.error
+        if (error.error) {
+          errorMsg = error.error
         } else if (error.message) {
           errorMsg = error.message
         }

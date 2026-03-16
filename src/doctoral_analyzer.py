@@ -420,16 +420,17 @@ class DoctoralAnalyzer:
         return combined[:max_chars]
 
     def _parse_keypoints_json(self, response: str) -> Dict[str, List[str]]:
-        """解析要点JSON"""
+        """解析要点JSON - 增强版，支持修复不完整的JSON"""
         try:
-            if "```json" in response:
-                json_start = response.find("```json") + 7
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
-            else:
-                json_str = response.strip()
-
-            keypoints = json.loads(json_str)
+            json_str = self._extract_json_str(response)
+            
+            # 尝试解析
+            try:
+                keypoints = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                # 尝试修复JSON
+                fixed_json = self._fix_json(json_str)
+                keypoints = json.loads(fixed_json)
 
             # 确保所有字段存在
             required_fields = [
@@ -447,7 +448,81 @@ class DoctoralAnalyzer:
 
         except Exception as e:
             print(f"  JSON解析失败: {e}")
+            # 打印部分响应用于调试
+            print(f"  响应预览: {response[:200]}...")
             return self._get_empty_keypoints()
+
+    def _extract_json_str(self, response: str) -> str:
+        """从响应中提取JSON字符串"""
+        if "```json" in response:
+            json_start = response.find("```json") + 7
+            json_end = response.find("```", json_start)
+            if json_end == -1:
+                json_end = len(response)
+            return response[json_start:json_end].strip()
+        elif "```" in response:
+            json_start = response.find("```") + 3
+            json_end = response.find("```", json_start)
+            if json_end == -1:
+                json_end = len(response)
+            return response[json_start:json_end].strip()
+        else:
+            # 尝试找到JSON对象的开始和结束
+            start = response.find('{')
+            if start == -1:
+                return response.strip()
+            
+            # 找到匹配的结束括号
+            brace_count = 0
+            end = start
+            for i, char in enumerate(response[start:]):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = start + i + 1
+                        break
+            
+            return response[start:end].strip()
+
+    def _fix_json(self, json_str: str) -> str:
+        """修复常见的JSON格式问题"""
+        import re
+        
+        # 1. 处理未转义的换行符
+        json_str = json_str.replace('\n', '\\n').replace('\r', '\\r')
+        
+        # 2. 处理未闭合的字符串（简单修复）
+        # 计算引号数量
+        quote_count = json_str.count('"')
+        if quote_count % 2 != 0:
+            # 奇数个引号，添加一个闭合引号
+            json_str += '"'
+        
+        # 3. 处理未闭合的数组或对象
+        open_braces = json_str.count('{') - json_str.count('}')
+        open_brackets = json_str.count('[') - json_str.count(']')
+        
+        # 添加缺失的闭合括号
+        json_str += '}' * max(0, open_braces)
+        json_str += ']' * max(0, open_brackets)
+        
+        # 4. 移除尾部逗号
+        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        
+        # 5. 处理多行字符串值
+        # 找到所有字符串值并确保它们被正确转义
+        def fix_string_value(match):
+            value = match.group(1)
+            # 转义未转义的引号
+            value = value.replace('"', '\\"')
+            return f'"{value}"'
+        
+        # 这个正则可能需要根据具体情况调整
+        json_str = re.sub(r':\s*"([^"]*)"(?=\s*[,}\]])', fix_string_value, json_str)
+        
+        return json_str
 
     def _get_empty_keypoints(self) -> Dict[str, List[str]]:
         """返回空的要点结构"""

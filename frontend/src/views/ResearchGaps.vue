@@ -94,7 +94,7 @@
     <!-- 空白列表 -->
     <div class="gaps-table-container">
       <el-table
-        :data="filteredGaps"
+        :data="paginatedGaps"
         v-loading="loading"
         style="width: 100%"
         :row-class-name="getRowClassName"
@@ -191,7 +191,7 @@
           v-model:current-page="pagination.page"
           v-model:page-size="pagination.pageSize"
           :page-sizes="[10, 20, 50, 100]"
-          :total="pagination.total"
+          :total="filteredGaps.length"
           layout="total, sizes, prev, pager, next, jumper"
           @size-change="handleSizeChange"
           @current-change="handlePageChange"
@@ -455,6 +455,13 @@ const filteredGaps = computed(() => {
     if (filters.value.status && gap.status !== filters.value.status) return false
     return true
   })
+})
+
+// 分页后的数据
+const paginatedGaps = computed(() => {
+  const start = (pagination.value.page - 1) * pagination.value.pageSize
+  const end = start + pagination.value.pageSize
+  return filteredGaps.value.slice(start, end)
 })
 
 // 方法

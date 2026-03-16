@@ -28,7 +28,11 @@ class Paper(Base):
     title = Column(String(500), nullable=False, index=True)
     abstract = Column(Text)
     pdf_path = Column(String(1000))
-    pdf_hash = Column(String(64), unique=True, index=True)  # MD5去重
+    pdf_hash = Column(String(64), index=True)  # MD5去重（不再全局唯一，改为按用户唯一）
+
+    # 用户关联 - 实现用户隔离
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
+    user = relationship("User", back_populates="papers")
 
     # 元数据
     year = Column(Integer, index=True)
@@ -59,6 +63,11 @@ class Paper(Base):
         foreign_keys="Relation.target_id",
         back_populates="target",
         cascade="all, delete-orphan"
+    )
+    
+    # 联合唯一约束：每个用户的pdf_hash唯一
+    __table_args__ = (
+        UniqueConstraint('user_id', 'pdf_hash', name='unique_user_paper'),
     )
 
     def __repr__(self):
@@ -286,7 +295,7 @@ class GeneratedCode(Base):
     __tablename__ = 'generated_code'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    gap_id = Column(Integer, ForeignKey('research_gaps.id'), nullable=False)
+    gap_id = Column(Integer, ForeignKey('research_gaps.id', ondelete='CASCADE'), nullable=False)
 
     # 代码内容
     code = Column(Text, nullable=False)
@@ -464,6 +473,9 @@ class User(Base):
     # 时间戳
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # 关系
+    papers = relationship("Paper", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"

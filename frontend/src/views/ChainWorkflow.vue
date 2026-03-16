@@ -640,9 +640,10 @@ const removeNode = (index) => {
 const moveNode = (index, direction) => {
   const newIndex = index + direction
   if (newIndex >= 0 && newIndex < chainNodes.value.length) {
+    // 使用 splice 方法确保 Vue 正确响应数组变化
     const temp = chainNodes.value[index]
-    chainNodes.value[index] = chainNodes.value[newIndex]
-    chainNodes.value[newIndex] = temp
+    chainNodes.value.splice(index, 1)
+    chainNodes.value.splice(newIndex, 0, temp)
   }
 }
 

@@ -275,7 +275,7 @@ class CodeGenerator:
             prompt += f"""
 基于以下潜在方法，生成改进的实现：
 
-{research_gap.potential_approach}
+{potential_approach}
 
 实现要求：
 1. 保持原方法的核心思想
@@ -288,7 +288,7 @@ class CodeGenerator:
             prompt += f"""
 设计全新方法来解决以下问题：
 
-{research_gap.description}
+{description}
 
 实现要求：
 1. 创新性设计
@@ -301,7 +301,7 @@ class CodeGenerator:
             prompt += f"""
 实现以下模型：
 
-{research_gap.potential_approach}
+{potential_approach}
 
 实现要求：
 1. 继承框架基类
@@ -314,7 +314,7 @@ class CodeGenerator:
             prompt += f"""
 创建数据集：
 
-{research_gap.description}
+{description}
 
 实现要求：
 1. 数据生成/加载逻辑

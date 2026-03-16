@@ -114,26 +114,56 @@ export default {
     }
 
     const exportGraph = () => {
-      // 导出当前图谱为图片
+      // 导出当前图谱为图片 - 修复版
       const svg = document.querySelector('.knowledge-graph-container svg')
       if (!svg) {
         ElMessage.warning('没有可导出的图谱')
         return
       }
 
-      const svgData = new XMLSerializer().serializeToString(svg)
+      // 克隆SVG以便修改
+      const clonedSvg = svg.cloneNode(true)
+      
+      // 获取SVG的实际尺寸
+      const svgRect = svg.getBoundingClientRect()
+      const width = svgRect.width || 1920
+      const height = svgRect.height || 1080
+      
+      // 设置必要的属性
+      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+      clonedSvg.setAttribute('width', width)
+      clonedSvg.setAttribute('height', height)
+      
+      // 添加白色背景
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      rect.setAttribute('width', '100%')
+      rect.setAttribute('height', '100%')
+      rect.setAttribute('fill', '#f8f9fa')
+      clonedSvg.insertBefore(rect, clonedSvg.firstChild)
+      
+      // 序列化SVG
+      const svgData = new XMLSerializer().serializeToString(clonedSvg)
+      
+      // 创建Canvas
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       const img = new Image()
-
-      canvas.width = 1920
-      canvas.height = 1080
+      
+      // 设置Canvas尺寸（保持比例）
+      const scale = 2 // 高清导出
+      canvas.width = width * scale
+      canvas.height = height * scale
 
       img.onload = () => {
+        // 绘制白色背景
         ctx.fillStyle = '#f8f9fa'
         ctx.fillRect(0, 0, canvas.width, canvas.height)
+        
+        // 绘制SVG图像
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
 
+        // 导出为PNG
         canvas.toBlob((blob) => {
           const url = URL.createObjectURL(blob)
           const a = document.createElement('a')
@@ -142,10 +172,18 @@ export default {
           a.click()
           URL.revokeObjectURL(url)
           ElMessage.success('图谱导出成功')
-        })
+        }, 'image/png')
       }
 
-      img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)))
+      img.onerror = (err) => {
+        console.error('图片加载失败:', err)
+        ElMessage.error('图谱导出失败，请重试')
+      }
+
+      // 使用 encodeURIComponent 和 btoa 正确编码
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+      const url = URL.createObjectURL(svgBlob)
+      img.src = url
     }
 
     return {

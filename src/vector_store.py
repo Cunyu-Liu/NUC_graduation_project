@@ -5,6 +5,7 @@ import os
 import json
 import asyncio
 import numpy as np
+import requests
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
@@ -27,6 +28,59 @@ try:
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
     # 静默处理，避免重复警告
+
+
+# GLM Embedding API 配置
+GLM_API_KEY = os.getenv('GLM_API_KEY', '')
+GLM_BASE_URL = os.getenv('GLM_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4')
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'embedding-3')  # 或使用 embedding-2
+
+
+def generate_embedding_via_api(text: str) -> np.ndarray:
+    """
+    使用 GLM API 生成 embedding
+    
+    Args:
+        text: 输入文本
+        
+    Returns:
+        embedding 向量
+    """
+    if not GLM_API_KEY:
+        raise ValueError("GLM_API_KEY 未设置，无法生成 embedding")
+    
+    # 截取文本，避免过长（embedding-3 最大支持 8k tokens）
+    text = text[:8000] if len(text) > 8000 else text
+    
+    headers = {
+        'Authorization': f'Bearer {GLM_API_KEY}',
+        'Content-Type': 'application/json'
+    }
+    
+    data = {
+        'model': EMBEDDING_MODEL,
+        'input': text
+    }
+    
+    try:
+        response = requests.post(
+            f'{GLM_BASE_URL}/embeddings',
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        # 解析 embedding
+        if 'data' in result and len(result['data']) > 0:
+            embedding = result['data'][0].get('embedding', [])
+            if embedding:
+                return np.array(embedding, dtype=np.float32)
+        
+        raise RuntimeError(f"API 返回格式异常: {result}")
+    except Exception as e:
+        raise RuntimeError(f"Embedding API 调用失败: {e}")
 
 
 @dataclass
@@ -58,9 +112,12 @@ class MilvusVectorStore:
     
     # 集合配置
     COLLECTION_NAME = "paper_embeddings"
-    DIM = 1024  # 向量维度 (BGE-large-zh-v1.5 为 1024)
     INDEX_TYPE = "IVF_FLAT"  # 索引类型
     METRIC_TYPE = "L2"  # 距离度量
+    
+    # Embedding 维度配置
+    # embedding-2: 1024维, embedding-3: 2048维, BGE-large-zh-v1.5: 1024维
+    DEFAULT_DIM = 2048 if EMBEDDING_MODEL == 'embedding-3' else 1024
     
     def __init__(self, 
                  host: str = "localhost", 
@@ -82,6 +139,7 @@ class MilvusVectorStore:
         self.db_manager = db_manager
         self.collection = None
         self.embedding_model = None
+        self.DIM = self.DEFAULT_DIM  # 设置向量维度
         
         # 初始化 embedding 模型
         self._init_embedding_model()
@@ -137,10 +195,25 @@ class MilvusVectorStore:
                 print(f"📦 创建新集合: {self.COLLECTION_NAME}")
                 self._create_collection()
             else:
-                print(f"📦 使用已有集合: {self.COLLECTION_NAME}")
+                print(f"📦 检查已有集合: {self.COLLECTION_NAME}")
                 self.collection = Collection(self.COLLECTION_NAME)
+                
+                # 检查集合维度是否匹配当前配置
+                schema = self.collection.schema
+                for field in schema.fields:
+                    if field.name == "embedding":
+                        existing_dim = field.params.get('dim', 0)
+                        if existing_dim != self.DIM:
+                            print(f"⚠️  集合维度不匹配: 现有={existing_dim}, 当前配置={self.DIM}")
+                            print(f"🗑️  删除旧集合并重新创建...")
+                            utility.drop_collection(self.COLLECTION_NAME)
+                            self._create_collection()
+                            return
+                        break
+                
                 # 加载集合以确保可以查询
                 self.collection.load()
+                print(f"✅ 使用现有集合，维度: {self.DIM}")
         except Exception as e:
             print(f"⚠️  初始化集合失败: {e}")
             # 尝试重新创建集合
@@ -198,8 +271,8 @@ class MilvusVectorStore:
             embedding = self.embedding_model.encode(text, normalize_embeddings=True)
             return embedding
         else:
-            # 使用 API 生成 embedding (需要实现)
-            raise NotImplementedError("API embedding 生成功能待实现")
+            # 使用 GLM API 生成 embedding
+            return generate_embedding_via_api(text)
     
     def add_paper(self, paper: PaperEmbedding) -> bool:
         """
@@ -212,23 +285,26 @@ class MilvusVectorStore:
             是否成功
         """
         try:
-            entities = [
-                [paper.paper_id],
-                [paper.title],
-                [paper.abstract],
-                [paper.embedding.tolist()],
-                [json.dumps(paper.keywords)],
-                [json.dumps(paper.authors or [])],
-                [paper.year or 0],
-                [paper.venue or ""],
-                [int(datetime.now().timestamp())]
-            ]
+            # 使用字典方式插入，明确指定字段名（id 是自增的，不需要提供）
+            entity = {
+                "paper_id": paper.paper_id,
+                "title": paper.title,
+                "abstract": paper.abstract,
+                "embedding": paper.embedding.tolist(),
+                "keywords": json.dumps(paper.keywords),
+                "authors": json.dumps(paper.authors or []),
+                "year": paper.year or 0,
+                "venue": paper.venue or "",
+                "created_at": int(datetime.now().timestamp())
+            }
             
-            self.collection.insert(entities)
+            self.collection.insert([entity])
             self.collection.flush()
             return True
         except Exception as e:
             print(f"❌ 添加论文失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def add_papers_batch(self, papers: List[PaperEmbedding], batch_size: int = 100) -> Dict[str, Any]:
@@ -247,16 +323,20 @@ class MilvusVectorStore:
         for i in range(0, len(papers), batch_size):
             batch = papers[i:i+batch_size]
             try:
+                # 使用字典列表方式插入，明确指定字段名（id 是自增的，不需要提供）
                 entities = [
-                    [p.paper_id for p in batch],
-                    [p.title for p in batch],
-                    [p.abstract for p in batch],
-                    [p.embedding.tolist() for p in batch],
-                    [json.dumps(p.keywords) for p in batch],
-                    [json.dumps(p.authors or []) for p in batch],
-                    [p.year or 0 for p in batch],
-                    [p.venue or "" for p in batch],
-                    [int(datetime.now().timestamp())] * len(batch)
+                    {
+                        "paper_id": p.paper_id,
+                        "title": p.title,
+                        "abstract": p.abstract,
+                        "embedding": p.embedding.tolist(),
+                        "keywords": json.dumps(p.keywords),
+                        "authors": json.dumps(p.authors or []),
+                        "year": p.year or 0,
+                        "venue": p.venue or "",
+                        "created_at": int(datetime.now().timestamp())
+                    }
+                    for p in batch
                 ]
                 
                 self.collection.insert(entities)
@@ -265,6 +345,8 @@ class MilvusVectorStore:
                 results["failed"] += len(batch)
                 results["errors"].append(str(e))
                 print(f"❌ 批量添加失败: {e}")
+                import traceback
+                traceback.print_exc()
         
         self.collection.flush()
         return results
@@ -416,12 +498,24 @@ class MilvusVectorStore:
             if count == 0:
                 return {"error": "向量库为空，请先同步论文到向量库", "code": "EMPTY_COLLECTION"}
             
+            # 先查询所有数据，查看实际的 paper_id
+            all_results = self.collection.query(
+                expr="paper_id >= 0",
+                output_fields=["paper_id"],
+                limit=100
+            )
+            all_paper_ids = [r['paper_id'] for r in all_results]
+            print(f"[DEBUG] 向量库中的 paper_id 列表: {all_paper_ids}")
+            print(f"[DEBUG] 请求聚类的 paper_ids: {paper_ids}")
+            
             # 根据是否有 expr 调用 query - Milvus 要求 expr 不能为空字符串
             # 使用 "paper_id >= 0" 作为查询所有数据的条件
             if paper_ids and len(paper_ids) > 0:
                 query_expr = f"paper_id in {paper_ids}"
             else:
                 query_expr = "paper_id >= 0"  # 查询所有数据
+            
+            print(f"[DEBUG] 查询表达式: {query_expr}")
             
             results = self.collection.query(
                 expr=query_expr,
@@ -478,6 +572,8 @@ class MilvusVectorStore:
                         "representative_papers": papers[:3],  # 前3篇作为代表性论文
                         "years": [p["year"] for p in papers if p.get("year")]
                     }
+            
+            print(f"[DEBUG] 聚类分析结果: {cluster_analysis}")
             
             return {
                 "success": True,
@@ -584,12 +680,13 @@ class VectorStoreManager:
         """检查向量存储是否可用"""
         return self.vector_store is not None
     
-    def sync_papers_from_db(self, paper_ids: Optional[List[int]] = None) -> Dict[str, Any]:
+    def sync_papers_from_db(self, paper_ids: Optional[List[int]] = None, user_id: int = None) -> Dict[str, Any]:
         """
         从数据库同步论文到向量存储
         
         Args:
             paper_ids: 要同步的论文ID列表（None表示全部）
+            user_id: 用户ID（用于用户隔离）
             
         Returns:
             同步结果
@@ -604,11 +701,11 @@ class VectorStoreManager:
         if paper_ids:
             papers = []
             for pid in paper_ids:
-                paper = self.db_manager.get_paper(pid)
+                paper = self.db_manager.get_paper(pid, user_id=user_id)
                 if paper:
                     papers.append(paper)
         else:
-            papers = self.db_manager.get_papers(limit=10000)
+            papers = self.db_manager.get_papers(limit=10000, user_id=user_id)
         
         if not papers:
             return {"error": "没有找到论文"}
@@ -631,7 +728,7 @@ class VectorStoreManager:
                 embedding = self.vector_store.generate_embedding(text)
                 
                 paper_embeddings.append(PaperEmbedding(
-                    paper_id=paper['id'],
+                    paper_id=int(paper['id']),  # 确保 paper_id 是整数
                     title=paper.get('title', ''),
                     abstract=paper.get('abstract', ''),
                     embedding=embedding,
@@ -642,10 +739,18 @@ class VectorStoreManager:
                 ))
             except Exception as e:
                 print(f"⚠️  处理论文 {paper.get('id')} 失败: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
+        
+        print(f"[DEBUG] 准备同步 {len(paper_embeddings)} 篇论文到向量库")
+        if paper_embeddings:
+            print(f"[DEBUG] 论文IDs: {[p.paper_id for p in paper_embeddings]}")
         
         # 批量添加到向量存储
         results = self.vector_store.add_papers_batch(paper_embeddings)
+        
+        print(f"[DEBUG] 同步结果: 成功={results['success']}, 失败={results['failed']}")
         
         return {
             "synced": results["success"],

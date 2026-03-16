@@ -506,7 +506,7 @@ export default {
         const response = await api.getVectorStoreStats()
         if (response.success) {
           vectorStats.value = response.data
-          ElMessage.success(`向量库连接正常，包含 ${response.data.total_papers} 篇论文`)
+          ElMessage.success(`向量库连接正常，包含 ${response.data?.total_papers || 0} 篇论文`)
         } else {
           ElMessage.error('向量库连接失败: ' + (response.error || '未知错误'))
         }
@@ -566,8 +566,8 @@ export default {
             collection_name: stats.collection_name,
             dimension: stats.dimension,
             total_papers: stats.total_papers,
-            available_papers: clusterResponse.data.total_papers || stats.total_papers,
-            test_cluster: clusterResponse.data,
+            available_papers: clusterResponse.data?.total_papers || stats.total_papers,
+            test_cluster: clusterResponse.data || {},
             message: '向量聚类测试成功！向量库工作正常。'
           }
           ElMessage.success('向量聚类测试成功')
@@ -606,7 +606,7 @@ export default {
         const response = await api.syncPapersToVectorStore(paperIds)
         
         if (response.success) {
-          ElMessage.success(`同步完成: ${response.data.synced} 成功, ${response.data.failed} 失败`)
+          ElMessage.success(`同步完成: ${response.data?.synced || 0} 成功, ${response.data?.failed || 0} 失败`)
           // 更新已同步论文集合
           paperIds.forEach(id => syncedPaperIds.value.add(id))
           await loadVectorStats()
@@ -638,20 +638,23 @@ export default {
         )
         
         if (response.success) {
+          console.log('[DEBUG] 向量聚类响应:', response)
+          console.log('[DEBUG] cluster_analysis:', response.data?.cluster_analysis)
+          
           result.value = {
-            clusterCount: response.data.n_clusters,
-            clusterAnalysis: response.data.cluster_analysis,
+            clusterCount: response.data?.n_clusters || 0,
+            clusterAnalysis: response.data?.cluster_analysis || {},
             papers: [],
             method: 'kmeans_vector',
             createdAt: new Date().toISOString(),
-            inertia: response.data.inertia
+            inertia: response.data?.inertia || 0
           }
 
           currentResultId.value = Date.now().toString()
           
-          ElMessage.success(`向量聚类完成! 共发现 ${response.data.n_clusters} 个主题类别`)
+          ElMessage.success(`向量聚类完成! 共发现 ${response.data?.n_clusters || 0} 个主题类别`)
           
-          const clusterIds = Object.keys(response.data.cluster_analysis)
+          const clusterIds = Object.keys(response.data?.cluster_analysis || {})
           activeClusters.value = clusterIds.slice(0, 3)
           
           saveCurrentResult()
@@ -722,9 +725,9 @@ export default {
         if (response.success) {
           // 格式化结果
           result.value = {
-            clusterCount: response.data.n_clusters,
-            clusterAnalysis: response.data.cluster_analysis,
-            papers: response.data.papers || [],
+            clusterCount: response.data?.n_clusters || 0,
+            clusterAnalysis: response.data?.cluster_analysis || {},
+            papers: response.data?.papers || [],
             method: options.value.method,
             createdAt: new Date().toISOString()
           }
@@ -733,10 +736,10 @@ export default {
           currentResultId.value = Date.now().toString()
 
           store.commit('SET_PROGRESS', { progress: 100, message: '聚类完成!' })
-          ElMessage.success(`聚类分析完成! 共发现 ${response.data.n_clusters} 个主题类别`)
+          ElMessage.success(`聚类分析完成! 共发现 ${response.data?.n_clusters || 0} 个主题类别`)
 
           // 自动展开前3个聚类
-          const clusterIds = Object.keys(response.data.cluster_analysis)
+          const clusterIds = Object.keys(response.data?.cluster_analysis || {})
           activeClusters.value = clusterIds.slice(0, 3)
 
           // 自动保存到历史记录

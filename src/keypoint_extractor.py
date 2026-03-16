@@ -234,7 +234,7 @@ class KeypointExtractor:
 
     def _parse_response(self, response: str) -> Dict[str, List[str]]:
         """
-        解析LLM响应，提取JSON数据（旧版兼容）
+        解析LLM响应，提取JSON数据（旧版兼容）- 增强版，支持修复不完整的JSON
 
         Args:
             response: LLM响应文本
@@ -242,23 +242,16 @@ class KeypointExtractor:
         Returns:
             Dict[str, List[str]]: 解析后的要点字典
         """
-        # 尝试提取JSON部分
         try:
-            # 查找JSON代码块
-            if "```json" in response:
-                json_start = response.find("```json") + 7
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
-            elif "```" in response:
-                json_start = response.find("```") + 3
-                json_end = response.find("```", json_start)
-                json_str = response[json_start:json_end].strip()
-            else:
-                # 尝试直接解析整个响应
-                json_str = response.strip()
-
-            # 解析JSON
-            keypoints = json.loads(json_str)
+            json_str = self._extract_json_str(response)
+            
+            # 尝试解析
+            try:
+                keypoints = json.loads(json_str)
+            except json.JSONDecodeError:
+                # 尝试修复JSON
+                fixed_json = self._fix_json(json_str)
+                keypoints = json.loads(fixed_json)
 
             # 验证并确保所有字段都存在
             required_fields = ["innovations", "methods", "experiments", "conclusions", "contributions", "limitations"]
@@ -272,8 +265,66 @@ class KeypointExtractor:
 
         except Exception as e:
             print(f"JSON解析失败: {e}")
-            print(f"原始响应: {response}")
+            print(f"原始响应: {response[:500]}...")
             return self._get_empty_keypoints()
+
+    def _extract_json_str(self, response: str) -> str:
+        """从响应中提取JSON字符串"""
+        # 尝试从markdown代码块中提取
+        if "```json" in response:
+            json_start = response.find("```json") + 7
+            json_end = response.find("```", json_start)
+            if json_end == -1:
+                json_end = len(response)
+            return response[json_start:json_end].strip()
+        elif "```" in response:
+            json_start = response.find("```") + 3
+            json_end = response.find("```", json_start)
+            if json_end == -1:
+                json_end = len(response)
+            return response[json_start:json_end].strip()
+        
+        # 尝试找到JSON对象
+        start = response.find('{')
+        if start == -1:
+            return response.strip()
+        
+        # 找到匹配的结束括号
+        brace_count = 0
+        end = start
+        for i, char in enumerate(response[start:]):
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    end = start + i + 1
+                    break
+        
+        return response[start:end].strip()
+
+    def _fix_json(self, json_str: str) -> str:
+        """修复常见的JSON格式问题"""
+        import re
+        
+        # 1. 处理未转义的换行符
+        json_str = json_str.replace('\n', '\\n').replace('\r', '\\r')
+        
+        # 2. 处理未闭合的字符串
+        quote_count = json_str.count('"')
+        if quote_count % 2 != 0:
+            json_str += '"'
+        
+        # 3. 处理未闭合的数组或对象
+        open_braces = json_str.count('{') - json_str.count('}')
+        open_brackets = json_str.count('[') - json_str.count(']')
+        json_str += '}' * max(0, open_braces)
+        json_str += ']' * max(0, open_brackets)
+        
+        # 4. 移除尾部逗号
+        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        
+        return json_str
 
     def _get_empty_keypoints(self) -> Dict[str, List[str]]:
         """返回空的要点结构"""
