@@ -467,12 +467,24 @@ export default {
     const saveCurrentResult = () => {
       if (!result.value) return
 
+      // 计算论文总数 - 从聚类分析中统计
+      let paperCount = 0
+      if (result.value.papers && result.value.papers.length > 0) {
+        // 传统聚类方式
+        paperCount = result.value.papers.length
+      } else if (result.value.clusterAnalysis) {
+        // 向量聚类方式 - 从各个聚类中统计论文数
+        Object.values(result.value.clusterAnalysis).forEach(cluster => {
+          paperCount += cluster.paper_count || 0
+        })
+      }
+
       const historyItem = {
         id: Date.now().toString(),
         createdAt: new Date().toISOString(),
         clusterCount: result.value.clusterCount,
         method: result.value.method,
-        paperCount: result.value.papers?.length || 0,
+        paperCount: paperCount,
         data: result.value
       }
 

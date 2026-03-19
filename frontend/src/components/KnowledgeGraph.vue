@@ -553,10 +553,105 @@ const resetZoom = () => {
   fitGraphToView()
 }
 
+// 导出图谱为图片
+const exportGraphImage = () => {
+  if (!svgElement.value) {
+    ElMessage.warning('没有可导出的图谱')
+    return Promise.reject('没有可导出的图谱')
+  }
+
+  return new Promise((resolve, reject) => {
+    const svg = svgElement.value
+    
+    // 克隆SVG以便修改
+    const clonedSvg = svg.cloneNode(true)
+    
+    // 获取SVG的实际尺寸
+    const width = graphContainer.value?.clientWidth || 1200
+    const height = graphContainer.value?.clientHeight || 800
+    
+    // 设置必要的属性
+    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+    clonedSvg.setAttribute('width', width)
+    clonedSvg.setAttribute('height', height)
+    
+    // 添加内联样式
+    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+    style.textContent = `
+      .nodes circle { fill: #409eff; stroke: #fff; stroke-width: 2; }
+      .nodes text { font-family: Arial, sans-serif; font-size: 12px; fill: #333; text-anchor: middle; }
+      .links line { stroke-opacity: 0.6; }
+      .link-labels text { font-family: Arial, sans-serif; font-size: 11px; fill: #444; text-anchor: middle; }
+    `
+    clonedSvg.insertBefore(style, clonedSvg.firstChild)
+    
+    // 添加白色背景
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    rect.setAttribute('width', '100%')
+    rect.setAttribute('height', '100%')
+    rect.setAttribute('fill', '#f8f9fa')
+    clonedSvg.insertBefore(rect, clonedSvg.firstChild)
+    
+    // 序列化SVG
+    const svgData = new XMLSerializer().serializeToString(clonedSvg)
+    
+    // 创建Canvas
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    const img = new Image()
+    
+    // 设置Canvas尺寸（保持比例，高清导出）
+    const scale = 2
+    canvas.width = width * scale
+    canvas.height = height * scale
+
+    img.onload = () => {
+      // 绘制白色背景
+      ctx.fillStyle = '#f8f9fa'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      
+      // 绘制SVG图像
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+      // 导出为PNG
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `knowledge_graph_${Date.now()}.png`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          ElMessage.success('图谱导出成功')
+          resolve()
+        } else {
+          ElMessage.error('导出失败：无法生成图片')
+          reject('无法生成图片')
+        }
+      }, 'image/png')
+    }
+
+    img.onerror = (err) => {
+      console.error('图片加载失败:', err)
+      ElMessage.error('图谱导出失败，请重试')
+      reject(err)
+    }
+
+    // 使用 Blob URL 加载 SVG
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(svgBlob)
+    img.src = url
+  })
+}
+
 // 暴露方法给父组件
 defineExpose({
   refreshGraph,
-  fitGraphToView
+  fitGraphToView,
+  exportGraphImage
 })
 
 // 生命周期

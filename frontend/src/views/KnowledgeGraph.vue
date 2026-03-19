@@ -113,93 +113,17 @@ export default {
       }
     }
 
-    const exportGraph = () => {
-      // 导出当前图谱为图片 - 修复版
-      const svg = document.querySelector('.knowledge-graph-container svg')
-      if (!svg) {
-        ElMessage.warning('没有可导出的图谱')
-        return
+    const exportGraph = async () => {
+      // 调用子组件的导出方法
+      if (graphComponent.value && graphComponent.value.exportGraphImage) {
+        try {
+          await graphComponent.value.exportGraphImage()
+        } catch (error) {
+          console.error('导出失败:', error)
+        }
+      } else {
+        ElMessage.warning('图谱组件未加载完成，请稍后重试')
       }
-
-      // 克隆SVG以便修改
-      const clonedSvg = svg.cloneNode(true)
-      
-      // 获取SVG的实际尺寸
-      const svgRect = svg.getBoundingClientRect()
-      const width = Math.max(svgRect.width, 800) || 1920
-      const height = Math.max(svgRect.height, 600) || 1080
-      
-      // 设置必要的属性
-      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-      clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
-      clonedSvg.setAttribute('width', width)
-      clonedSvg.setAttribute('height', height)
-      
-      // 添加内联样式
-      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
-      style.textContent = `
-        .node circle { fill: #409eff; stroke: #fff; stroke-width: 2; }
-        .node text { font-family: Arial, sans-serif; font-size: 12px; fill: #333; }
-        .links line { stroke-opacity: 0.6; }
-        .link-labels text { font-family: Arial, sans-serif; font-size: 11px; fill: #444; }
-      `
-      clonedSvg.insertBefore(style, clonedSvg.firstChild)
-      
-      // 添加白色背景
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-      rect.setAttribute('width', '100%')
-      rect.setAttribute('height', '100%')
-      rect.setAttribute('fill', '#f8f9fa')
-      clonedSvg.insertBefore(rect, clonedSvg.firstChild)
-      
-      // 序列化SVG
-      const svgData = new XMLSerializer().serializeToString(clonedSvg)
-      
-      // 创建Canvas
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      const img = new Image()
-      
-      // 设置Canvas尺寸（保持比例）
-      const scale = 2 // 高清导出
-      canvas.width = width * scale
-      canvas.height = height * scale
-
-      img.onload = () => {
-        // 绘制白色背景
-        ctx.fillStyle = '#f8f9fa'
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        
-        // 绘制SVG图像
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-
-        // 导出为PNG
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `knowledge_graph_${Date.now()}.png`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(url)
-            ElMessage.success('图谱导出成功')
-          } else {
-            ElMessage.error('导出失败：无法生成图片')
-          }
-        }, 'image/png')
-      }
-
-      img.onerror = (err) => {
-        console.error('图片加载失败:', err)
-        ElMessage.error('图谱导出失败，请重试')
-      }
-
-      // 使用 Blob URL 加载 SVG
-      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-      const url = URL.createObjectURL(svgBlob)
-      img.src = url
     }
 
     return {

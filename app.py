@@ -1883,9 +1883,10 @@ def get_code_versions(code_id: int):
 
 @app.route('/api/knowledge-graph/build', methods=['POST'])
 @auth_required
-async def build_knowledge_graph():
+def build_knowledge_graph():
     """手动构建知识图谱"""
     try:
+        import asyncio
         data = request.get_json() or {}
         paper_ids = data.get('paper_ids', [])
 
@@ -1895,11 +1896,13 @@ async def build_knowledge_graph():
         from src.knowledge_graph_builder import KnowledgeGraphBuilder
 
         builder = KnowledgeGraphBuilder(db_manager=db)
-        result = await builder.build_graph_for_papers(
+        
+        # 使用 asyncio.run 运行异步函数
+        result = asyncio.run(builder.build_graph_for_papers(
             paper_ids=paper_ids if paper_ids else None,
             min_similarity=0.3,
             max_relations_per_paper=10
-        )
+        ))
 
         return jsonify(create_response(
             success=True,
