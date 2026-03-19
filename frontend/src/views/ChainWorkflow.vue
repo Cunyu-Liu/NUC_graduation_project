@@ -591,7 +591,7 @@ const addNode = () => {
     model: 'glm-4-plus',
     temperature: 0.7,
     maxTokens: 4000,
-    inputSource: chainNodes.value.length === 0 ? 'original' : chainNodes.value[chainNodes.value.length - 1].id,
+    inputSource: chainNodes.value.length === 0 ? 'original' : 'previous',
     outputFormat: 'text',
     conditional: false,
     condition: '',
@@ -644,6 +644,18 @@ const moveNode = (index, direction) => {
     const temp = chainNodes.value[index]
     chainNodes.value.splice(index, 1)
     chainNodes.value.splice(newIndex, 0, temp)
+    
+    // 更新所有节点的 inputSource，确保顺序正确
+    chainNodes.value.forEach((node, idx) => {
+      if (idx === 0) {
+        node.inputSource = 'original'
+      } else {
+        // 使用 'previous' 而不是特定节点ID，这样后端会按顺序使用上一个节点的输出
+        node.inputSource = 'previous'
+      }
+    })
+    
+    ElMessage.success('节点顺序已更新')
   }
 }
 
@@ -812,7 +824,7 @@ const loadTemplate = async (templateId) => {
           model: nodeConfig.model || 'glm-4-plus',
           temperature: 0.7,
           maxTokens: 4000,
-          inputSource: index === 0 ? 'original' : chainNodes.value[index - 1]?.id || 'original',
+          inputSource: index === 0 ? 'original' : 'previous',
           outputFormat: 'text',
           conditional: false,
           condition: '',

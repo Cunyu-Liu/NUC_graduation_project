@@ -1153,14 +1153,34 @@ def analyze_paper():
 
         # 执行工作流 - 传递paper_id避免重复保存
         emit_progress(10, "开始分析论文", "初始化")
+        
+        # 创建进度回调函数
+        def progress_callback(step, message):
+            progress_map = {
+                'parse': 20,
+                'analyze': 40,
+                'graph': 60,
+                'gaps': 70,
+                'code': 90,
+                'complete': 100
+            }
+            progress = progress_map.get(step, 50)
+            emit_progress(progress, message, step)
+        
+        # 包装工作流以支持进度回调
+        async def run_workflow_with_progress():
+            progress_callback('parse', '正在解析论文...')
+            result = await workflow.execute_paper_workflow(
+                pdf_path=str(pdf_path),
+                paper_id=paper_id,
+                tasks=tasks,
+                auto_generate_code=auto_generate_code,
+                user_id=user_id
+            )
+            progress_callback('complete', '分析完成')
+            return result
 
-        result = asyncio.run(workflow.execute_paper_workflow(
-            pdf_path=str(pdf_path),
-            paper_id=paper_id,  # 传递已存在的论文ID
-            tasks=tasks,
-            auto_generate_code=auto_generate_code,
-            user_id=user_id  # 传递用户ID支持用户隔离
-        ))
+        result = asyncio.run(run_workflow_with_progress())
 
         # 从数据库获取完整的分析结果
         analysis_id = result.get('analysis_id')

@@ -581,15 +581,21 @@ class KnowledgeGraphBuilder:
     def _save_relations(self, relations: List[Dict]) -> int:
         """保存关系到数据库"""
         count = 0
+        skip_count = 0
         for rel_data in relations:
             try:
                 self.db.create_relation(rel_data)
                 count += 1
             except Exception as e:
-                # 忽略重复关系错误
-                if 'unique_relation' not in str(e):
-                    print(f"    保存关系失败: {e}")
+                error_msg = str(e).lower()
+                # 忽略重复关系错误（多种可能的错误信息）
+                if any(keyword in error_msg for keyword in ['unique', 'duplicate', 'already exists', '违反唯一约束']):
+                    skip_count += 1
+                    continue
+                print(f"    保存关系失败: {e}")
 
+        if skip_count > 0:
+            print(f"    跳过 {skip_count} 个重复关系")
         return count
 
     def _count_relation_types(self, relations: List[Dict]) -> Dict[str, int]:

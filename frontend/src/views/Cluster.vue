@@ -499,6 +499,20 @@ export default {
       }
     }
 
+    // 加载已同步的论文ID列表
+    const loadSyncedPaperIds = async () => {
+      try {
+        // 通过搜索空字符串来获取所有论文ID
+        const response = await api.searchVectorStore('', 1000)
+        if (response.success && response.data) {
+          syncedPaperIds.value = new Set(response.data.map(p => p.paper_id))
+          console.log(`[DEBUG] 已加载 ${syncedPaperIds.value.size} 个已同步论文ID`)
+        }
+      } catch (error) {
+        console.error('加载已同步论文列表失败:', error)
+      }
+    }
+
     // 测试向量连接
     const testVectorConnection = async () => {
       testingConnection.value = true
@@ -983,6 +997,7 @@ export default {
       store.dispatch('fetchFiles')
       loadHistory()
       loadVectorStats()
+      loadSyncedPaperIds()
     })
 
     return {

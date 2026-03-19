@@ -562,15 +562,62 @@ class MilvusVectorStore:
             for idx, label in enumerate(labels):
                 clusters[label].append(paper_data[idx])
             
-            # 计算每个聚类的中心论文（离质心最近的）
+            # 计算每个聚类的中心论文（离质心最近的）和提取关键词
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            import jieba
+            
             cluster_analysis = {}
             for cluster_id, papers in clusters.items():
                 if papers:
+                    # 合并聚类内所有论文的文本用于关键词提取
+                    cluster_texts = []
+                    for p in papers:
+                        text = f"{p.get('title', '')} {p.get('abstract', '')}"
+                        if text.strip():
+                            cluster_texts.append(text)
+                    
+                    # 提取核心关键词
+                    top_keywords = []
+                    if cluster_texts:
+                        try:
+                            # 使用jieba进行中文分词
+                            def tokenize(text):
+                                return ' '.join(jieba.cut(text))
+                            
+                            tokenized_texts = [tokenize(t) for t in cluster_texts]
+                            
+                            # 使用TF-IDF提取关键词
+                            vectorizer = TfidfVectorizer(
+                                max_features=100,
+                                stop_words=['的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一', '个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were'],
+                                ngram_range=(1, 2)
+                            )
+                            
+                            tfidf_matrix = vectorizer.fit_transform(tokenized_texts)
+                            feature_names = vectorizer.get_feature_names_out()
+                            
+                            # 计算每个词的平均TF-IDF分数
+                            mean_scores = np.array(tfidf_matrix.mean(axis=0)).flatten()
+                            
+                            # 获取前10个关键词
+                            top_indices = mean_scores.argsort()[-10:][::-1]
+                            top_keywords = [feature_names[i] for i in top_indices if mean_scores[i] > 0]
+                            
+                            # 如果没有提取到关键词，使用论文标题中的高频词
+                            if not top_keywords:
+                                all_titles = ' '.join([p.get('title', '') for p in papers])
+                                words = jieba.analyse.extract_tags(all_titles, topK=10)
+                                top_keywords = words
+                        except Exception as e:
+                            print(f"[WARNING] 聚类 {cluster_id} 关键词提取失败: {e}")
+                            top_keywords = []
+                    
                     cluster_analysis[str(cluster_id)] = {
                         "paper_count": len(papers),
                         "papers": [p["title"] for p in papers],
                         "representative_papers": papers[:3],  # 前3篇作为代表性论文
-                        "years": [p["year"] for p in papers if p.get("year")]
+                        "years": [p["year"] for p in papers if p.get("year")],
+                        "top_keywords": top_keywords  # 添加核心关键词
                     }
             
             print(f"[DEBUG] 聚类分析结果: {cluster_analysis}")
@@ -710,9 +757,33 @@ class VectorStoreManager:
         if not papers:
             return {"error": "没有找到论文"}
         
-        # 转换为 PaperEmbedding
+        # 检查向量库中已存在的论文ID
+        existing_ids = set()
+        try:
+            # 查询向量库中的所有paper_id
+            self.vector_store.collection.load()
+            all_results = self.vector_store.collection.query(
+                expr="paper_id >= 0",
+                output_fields=["paper_id"],
+                limit=10000
+            )
+            existing_ids = set(r['paper_id'] for r in all_results)
+            print(f"[DEBUG] 向量库中已存在 {len(existing_ids)} 篇论文: {existing_ids}")
+        except Exception as e:
+            print(f"[WARNING] 检查已存在论文失败: {e}")
+        
+        # 转换为 PaperEmbedding，跳过已存在的论文
         paper_embeddings = []
+        skipped_count = 0
         for paper in papers:
+            paper_id = int(paper.get('id', 0))
+            
+            # 检查是否已存在
+            if paper_id in existing_ids:
+                print(f"[DEBUG] 论文 {paper_id} 已存在于向量库，跳过")
+                skipped_count += 1
+                continue
+            
             try:
                 # 组合文本用于生成 embedding
                 text = f"{paper.get('title', '')}\n{paper.get('abstract', '')}"
@@ -728,7 +799,7 @@ class VectorStoreManager:
                 embedding = self.vector_store.generate_embedding(text)
                 
                 paper_embeddings.append(PaperEmbedding(
-                    paper_id=int(paper['id']),  # 确保 paper_id 是整数
+                    paper_id=paper_id,
                     title=paper.get('title', ''),
                     abstract=paper.get('abstract', ''),
                     embedding=embedding,
@@ -738,23 +809,27 @@ class VectorStoreManager:
                     authors=authors
                 ))
             except Exception as e:
-                print(f"⚠️  处理论文 {paper.get('id')} 失败: {e}")
+                print(f"⚠️  处理论文 {paper_id} 失败: {e}")
                 import traceback
                 traceback.print_exc()
                 continue
         
-        print(f"[DEBUG] 准备同步 {len(paper_embeddings)} 篇论文到向量库")
+        print(f"[DEBUG] 准备同步 {len(paper_embeddings)} 篇论文到向量库 (跳过 {skipped_count} 篇重复)")
         if paper_embeddings:
             print(f"[DEBUG] 论文IDs: {[p.paper_id for p in paper_embeddings]}")
         
         # 批量添加到向量存储
-        results = self.vector_store.add_papers_batch(paper_embeddings)
+        if paper_embeddings:
+            results = self.vector_store.add_papers_batch(paper_embeddings)
+        else:
+            results = {"success": 0, "failed": 0, "errors": []}
         
-        print(f"[DEBUG] 同步结果: 成功={results['success']}, 失败={results['failed']}")
+        print(f"[DEBUG] 同步结果: 成功={results['success']}, 失败={results['failed']}, 跳过={skipped_count}")
         
         return {
             "synced": results["success"],
             "failed": results["failed"],
+            "skipped": skipped_count,
             "total": len(papers)
         }
     

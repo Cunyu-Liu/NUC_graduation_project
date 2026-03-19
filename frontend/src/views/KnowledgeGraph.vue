@@ -126,14 +126,24 @@ export default {
       
       // 获取SVG的实际尺寸
       const svgRect = svg.getBoundingClientRect()
-      const width = svgRect.width || 1920
-      const height = svgRect.height || 1080
+      const width = Math.max(svgRect.width, 800) || 1920
+      const height = Math.max(svgRect.height, 600) || 1080
       
       // 设置必要的属性
       clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
       clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
       clonedSvg.setAttribute('width', width)
       clonedSvg.setAttribute('height', height)
+      
+      // 添加内联样式
+      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+      style.textContent = `
+        .node circle { fill: #409eff; stroke: #fff; stroke-width: 2; }
+        .node text { font-family: Arial, sans-serif; font-size: 12px; fill: #333; }
+        .links line { stroke-opacity: 0.6; }
+        .link-labels text { font-family: Arial, sans-serif; font-size: 11px; fill: #444; }
+      `
+      clonedSvg.insertBefore(style, clonedSvg.firstChild)
       
       // 添加白色背景
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
@@ -165,13 +175,19 @@ export default {
 
         // 导出为PNG
         canvas.toBlob((blob) => {
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `knowledge_graph_${Date.now()}.png`
-          a.click()
-          URL.revokeObjectURL(url)
-          ElMessage.success('图谱导出成功')
+          if (blob) {
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `knowledge_graph_${Date.now()}.png`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+            ElMessage.success('图谱导出成功')
+          } else {
+            ElMessage.error('导出失败：无法生成图片')
+          }
         }, 'image/png')
       }
 
@@ -180,7 +196,7 @@ export default {
         ElMessage.error('图谱导出失败，请重试')
       }
 
-      // 使用 encodeURIComponent 和 btoa 正确编码
+      // 使用 Blob URL 加载 SVG
       const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
       const url = URL.createObjectURL(svgBlob)
       img.src = url

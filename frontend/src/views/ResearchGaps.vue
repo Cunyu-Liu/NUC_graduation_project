@@ -866,6 +866,8 @@ const handlePageChange = (page) => {
 
 const handleSizeChange = (size) => {
   pagination.value.pageSize = size
+  pagination.value.page = 1  // 重置到第一页
+  ElMessage.success(`每页显示 ${size} 条`)
 }
 
 // 生命周期
