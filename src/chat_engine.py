@@ -301,11 +301,13 @@ class ChatEngine:
                             search_results = []
                             need_supplement = True
                     else:
-                        need_supplement = True
-                        print("ℹ️ 没有关联论文，将在全部论文中搜索")
+                        need_supplement = False  # 用户没有关联论文，不搜索所有论文
+                        print("ℹ️ 用户未关联论文，跳过论文搜索")
                     
                     # 如果关联论文中没有找到足够结果，则在全部论文中补充搜索
-                    if need_supplement:
+                    # 注意：只有在用户有指定关联论文时才进行补充搜索，
+                    # 如果用户明确没有选择关联论文，则不搜索所有论文
+                    if need_supplement and effective_connected_papers and len(effective_connected_papers) > 0:
                         try:
                             additional_results = self.vector_store.search(message, top_k=10)
                             # 合并结果，去重，优先保留关联论文的结果

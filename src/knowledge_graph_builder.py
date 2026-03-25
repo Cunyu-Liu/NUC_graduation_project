@@ -44,7 +44,8 @@ class KnowledgeGraphBuilder:
         self,
         paper_ids: List[int] = None,
         min_similarity: float = 0.3,
-        max_relations_per_paper: int = 10
+        max_relations_per_paper: int = 10,
+        user_id: int = None
     ) -> Dict[str, Any]:
         """
         为指定论文构建知识图谱
@@ -61,8 +62,8 @@ class KnowledgeGraphBuilder:
         print("开始构建知识图谱...")
         print(f"{'='*80}\n")
 
-        # 获取论文数据
-        papers = self._get_papers(paper_ids)
+        # 获取论文数据（支持用户隔离）
+        papers = self._get_papers(paper_ids, user_id=user_id)
         if len(papers) < 2:
             print("论文数量不足，无法构建知识图谱")
             return {'nodes': 0, 'edges': 0, 'message': '论文数量不足'}
@@ -127,13 +128,15 @@ class KnowledgeGraphBuilder:
         print(f"\n✓ 知识图谱构建完成: {result['message']}")
         return result
 
-    def _get_papers(self, paper_ids: List[int] = None) -> List[Dict]:
-        """获取论文数据"""
+    def _get_papers(self, paper_ids: List[int] = None, user_id: int = None) -> List[Dict]:
+        """获取论文数据（支持用户隔离）"""
         if paper_ids:
-            return self.db.batch_get_papers(paper_ids)
+            # 批量获取时也需要考虑用户隔离
+            papers = self.db.batch_get_papers(paper_ids, user_id=user_id)
+            return papers
         else:
-            # 获取所有论文（限制1000篇以避免内存问题）
-            return self.db.get_papers(limit=1000)
+            # 获取所有论文（限制1000篇以避免内存问题，支持用户隔离）
+            return self.db.get_papers(limit=1000, user_id=user_id)
 
     def _clear_existing_relations(self, paper_ids: List[int]):
         """清除指定论文的现有关系"""

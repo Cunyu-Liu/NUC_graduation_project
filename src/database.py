@@ -88,6 +88,7 @@ class Paper(Base):
             'filename': self.pdf_path,  # 前端需要的字段
             'size': self.page_count * 200 * 1024 if self.page_count else 0,  # 估算大小(假设每页200KB)
             'pdf_path': self.pdf_path,
+            'user_id': self.user_id,  # 支持用户隔离
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

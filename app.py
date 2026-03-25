@@ -740,7 +740,9 @@ def batch_create_papers():
         if not papers_data:
             return jsonify(create_response(success=False, error="没有提供论文数据")), 400
 
-        created_papers = db.batch_create_papers(papers_data)
+        # 获取当前用户ID（支持用户隔离）
+        user_id = getattr(request, 'current_user_id', None)
+        created_papers = db.batch_create_papers(papers_data, user_id=user_id)
 
         return jsonify(create_response(
             success=True,
@@ -765,7 +767,9 @@ def batch_get_papers():
         if not paper_ids:
             return jsonify(create_response(success=False, error="没有提供论文ID列表")), 400
 
-        papers = db.batch_get_papers(paper_ids)
+        # 获取当前用户ID（支持用户隔离）
+        user_id = getattr(request, 'current_user_id', None)
+        papers = db.batch_get_papers(paper_ids, user_id=user_id)
 
         return jsonify(create_response(
             success=True,
@@ -1889,8 +1893,11 @@ def build_knowledge_graph():
         import asyncio
         data = request.get_json() or {}
         paper_ids = data.get('paper_ids', [])
+        
+        # 获取当前用户ID（支持用户隔离）
+        user_id = getattr(request, 'current_user_id', None)
 
-        print(f"[INFO] 开始构建知识图谱, 论文IDs: {paper_ids if paper_ids else '全部'}")
+        print(f"[INFO] 开始构建知识图谱, 论文IDs: {paper_ids if paper_ids else '全部'}, user_id: {user_id}")
 
         # 导入知识图谱构建器
         from src.knowledge_graph_builder import KnowledgeGraphBuilder
@@ -1901,7 +1908,8 @@ def build_knowledge_graph():
         result = asyncio.run(builder.build_graph_for_papers(
             paper_ids=paper_ids if paper_ids else None,
             min_similarity=0.3,
-            max_relations_per_paper=10
+            max_relations_per_paper=10,
+            user_id=user_id
         ))
 
         return jsonify(create_response(
@@ -2060,8 +2068,8 @@ def chat_with_ai_stream():
                 connected_papers=paper_ids
             )
         else:
-            # 更新关联论文
-            if paper_ids:
+            # 更新关联论文（注意：paper_ids 可能是空列表，表示清空关联）
+            if paper_ids is not None:
                 context.connected_papers = paper_ids
         
         def generate():

@@ -249,16 +249,24 @@ class DatabaseManager:
             print(f"  ✓ 批量删除 {count} 篇论文")
             return count
 
-    def batch_create_papers(self, papers_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """批量创建论文"""
+    def batch_create_papers(self, papers_data: List[Dict[str, Any]], user_id: int = None) -> List[Dict[str, Any]]:
+        """批量创建论文 - 支持用户隔离"""
         created_papers = []
         with self.get_session() as session:
             for paper_data in papers_data:
                 try:
-                    # 检查是否已存在（通过pdf_hash）
-                    existing = session.query(Paper).filter(
+                    # 检查是否已存在（通过pdf_hash和用户ID）
+                    query = session.query(Paper).filter(
                         Paper.pdf_hash == paper_data.get('pdf_hash')
-                    ).first()
+                    )
+                    
+                    # 用户隔离：检查特定用户或公共论文
+                    if user_id:
+                        query = query.filter(Paper.user_id == user_id)
+                    else:
+                        query = query.filter(Paper.user_id.is_(None))
+                    
+                    existing = query.first()
 
                     if existing:
                         print(f"  论文已存在，跳过: {existing.title[:60]}")
@@ -268,6 +276,10 @@ class DatabaseManager:
                     # 过滤掉不是Paper模型的字段
                     paper_fields = {k: v for k, v in paper_data.items()
                                   if k not in ['authors', 'keywords']}
+                    
+                    # 添加用户ID
+                    if user_id:
+                        paper_fields['user_id'] = user_id
 
                     # 创建论文
                     paper = Paper(**paper_fields)

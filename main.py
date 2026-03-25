@@ -36,19 +36,43 @@ def init_db():
 
 
 @cli.command()
-def stats():
+@click.option('--all', 'show_all', is_flag=True, help='显示所有用户的统计信息（管理员模式）')
+def stats(show_all: bool):
     """显示统计信息"""
+    from src.database import Paper, Analysis, ResearchGap, Relation
+    from sqlalchemy import func
+    
     db = DatabaseManager()
-    stats = db.get_statistics()
+    
+    if show_all:
+        # 管理员模式：统计所有用户的数据
+        with db.get_session() as session:
+            stats_data = {
+                'total_papers': session.query(Paper).count(),
+                'total_analyses': session.query(Analysis).count(),
+                'total_gaps': session.query(ResearchGap).count(),
+                'total_relations': session.query(Relation).count(),
+            }
+            # 统计各用户的论文数量
+            user_counts = session.query(Paper.user_id, func.count(Paper.id)).group_by(Paper.user_id).all()
+    else:
+        stats_data = db.get_statistics()
+        user_counts = []
 
     table = Table(title="系统统计信息")
     table.add_column("指标", style="cyan")
     table.add_column("数量", style="magenta")
 
-    for key, value in stats.items():
+    for key, value in stats_data.items():
         table.add_row(key, str(value))
 
     console.print(table)
+    
+    if show_all and user_counts:
+        console.print("\n[bold]各用户论文数量:[/bold]")
+        for user_id, count in user_counts:
+            user_label = f"用户 {user_id}" if user_id else "公共论文"
+            console.print(f"  {user_label}: {count} 篇")
 
 
 # ============================================================================
@@ -131,41 +155,99 @@ def batch(pdf_dir: str, pattern: str, limit: int):
 @cli.command()
 @click.option('--search', '-s', help='搜索关键词')
 @click.option('--limit', '-n', default=20, help='显示数量')
-def list(search: str, limit: int):
+@click.option('--all', 'show_all', is_flag=True, help='显示所有用户的论文（管理员模式）')
+def list(search: str, limit: int, show_all: bool):
     """列出论文"""
+    from src.database import Paper
+    
     db = DatabaseManager()
-    papers = db.get_papers(search=search or '', limit=limit)
+    
+    if show_all:
+        # 管理员模式：查询所有用户的论文
+        with db.get_session() as session:
+            query = session.query(Paper)
+            if search:
+                query = query.filter(Paper.title.ilike(f'%{search}%'))
+            query = query.order_by(Paper.id.desc()).limit(limit)
+            papers = query.all()
+            # 在会话内提取所有数据，避免 DetachedInstanceError
+            papers = [(p.id, p.title or '', p.year, p.venue or '', p.user_id) for p in papers]
+    else:
+        # 默认模式：只查询无user_id的公共论文
+        papers = db.get_papers(search=search or '', limit=limit)
+        # 转换为统一的元组格式
+        papers = [(p['id'], p['title'] or '', p['year'], p['venue'] or '', p.get('user_id')) for p in papers]
 
     table = Table(title=f"论文列表 ({len(papers)} 篇)")
     table.add_column("ID", style="cyan")
     table.add_column("标题", style="white")
     table.add_column("年份", style="yellow")
     table.add_column("发表场所", style="green")
+    table.add_column("用户ID", style="dim")
 
-    for paper in papers:
-        title = paper.title[:50] + "..." if len(paper.title) > 50 else paper.title
-        table.add_row(str(paper.id), title, str(paper.year or 'N/A'), paper.venue or 'N/A')
+    for paper_id, title, year, venue, user_id in papers:
+        title_display = title[:50] + "..." if len(title) > 50 else title
+        table.add_row(str(paper_id), title_display, str(year or 'N/A'), venue or 'N/A', str(user_id or '-'))
 
     console.print(table)
 
 
 @cli.command()
 @click.argument('paper_id', type=int)
-def show(paper_id: int):
+@click.option('--all', 'show_all', is_flag=True, help='在所有用户论文中查找（管理员模式）')
+def show(paper_id: int, show_all: bool):
     """显示论文详情"""
+    from src.database import Paper
+    
     db = DatabaseManager()
-    paper = db.get_paper(paper_id)
+    
+    if show_all:
+        # 管理员模式：查询所有用户的论文
+        with db.get_session() as session:
+            paper = session.query(Paper).filter(Paper.id == paper_id).first()
+            if paper:
+                # 在会话内提取所有数据
+                paper_data = {
+                    'id': paper.id,
+                    'title': paper.title,
+                    'abstract': paper.abstract,
+                    'year': paper.year,
+                    'venue': paper.venue,
+                    'user_id': paper.user_id,
+                    'metadata': paper.meta_data or {}
+                }
+                paper = paper_data
+    else:
+        paper = db.get_paper(paper_id)
 
     if not paper:
         console.print("[red]✗ 论文不存在[/red]")
+        console.print("[yellow]提示: 使用 --all 参数可以查看所有用户的论文[/yellow]")
         return
 
-    console.print(f"\n[bold cyan]ID:[/bold cyan] {paper.id}")
-    console.print(f"[bold cyan]标题:[/bold cyan] {paper.title}")
-    console.print(f"[bold cyan]作者:[/bold cyan] {', '.join(paper.metadata.get('authors', [])[:5])}")
-    console.print(f"[bold cyan]年份:[/bold cyan] {paper.year}")
-    console.print(f"[bold cyan]发表场所:[/bold cyan] {paper.venue}")
-    console.print(f"[bold cyan]摘要:[/bold cyan]\n{paper.abstract[:300]}...")
+    # 统一使用字典访问方式
+    if isinstance(paper, dict):
+        paper_data = paper
+    else:
+        # Paper ORM 对象转换为字典
+        paper_data = {
+            'id': paper.id,
+            'title': paper.title,
+            'abstract': paper.abstract,
+            'year': paper.year,
+            'venue': paper.venue,
+            'user_id': paper.user_id,
+            'metadata': paper.meta_data or {}
+        }
+    
+    console.print(f"\n[bold cyan]ID:[/bold cyan] {paper_data['id']}")
+    console.print(f"[bold cyan]标题:[/bold cyan] {paper_data['title']}")
+    console.print(f"[bold cyan]作者:[/bold cyan] {', '.join(paper_data.get('metadata', {}).get('authors', [])[:5])}")
+    console.print(f"[bold cyan]年份:[/bold cyan] {paper_data['year']}")
+    console.print(f"[bold cyan]发表场所:[/bold cyan] {paper_data['venue']}")
+    console.print(f"[bold cyan]用户ID:[/bold cyan] {paper_data.get('user_id') or '公共'}")
+    abstract = paper_data.get('abstract') or ''
+    console.print(f"[bold cyan]摘要:[/bold cyan]\n{abstract[:300]}...")
 
     # 显示分析历史
     analyses = db.get_analyses_by_paper(paper_id)
@@ -177,15 +259,30 @@ def show(paper_id: int):
 
 @cli.command()
 @click.argument('paper_id', type=int)
-def delete(paper_id: int):
+@click.option('--all', 'force_all', is_flag=True, help='强制删除（无视用户权限）')
+def delete(paper_id: int, force_all: bool):
     """删除论文"""
+    from src.database import Paper
+    
     db = DatabaseManager()
-    success = db.delete_paper(paper_id)
-
-    if success:
-        console.print(f"[green]✓ 论文 {paper_id} 已删除[/green]")
+    
+    if force_all:
+        # 管理员模式：直接删除
+        with db.get_session() as session:
+            paper = session.query(Paper).filter(Paper.id == paper_id).first()
+            if paper:
+                session.delete(paper)
+                session.commit()
+                console.print(f"[green]✓ 论文 {paper_id} 已删除[/green]")
+            else:
+                console.print(f"[red]✗ 论文 {paper_id} 不存在[/red]")
     else:
-        console.print(f"[red]✗ 论文 {paper_id} 不存在[/red]")
+        success = db.delete_paper(paper_id)
+        if success:
+            console.print(f"[green]✓ 论文 {paper_id} 已删除[/green]")
+        else:
+            console.print(f"[red]✗ 论文 {paper_id} 不存在或无权限删除[/red]")
+            console.print("[yellow]提示: 使用 --all 参数可以删除任何用户的论文[/yellow]")
 
 
 # ============================================================================

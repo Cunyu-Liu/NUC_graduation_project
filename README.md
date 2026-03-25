@@ -297,6 +297,18 @@ python main.py stats
 ```python
 # src/config.py
 DATABASE_URL = "postgresql://user:password@localhost/literature_analysis"
+# 查看所有论文
+python main.py list --all
+
+# 查看特定论文（无视用户隔离）
+python main.py show <paper_id> --all
+
+# 删除任何论文（无视用户隔离）
+python main.py delete <paper_id> --all
+
+# 查看所有用户统计
+python main.py stats --all
+
 ```
 
 ### LLM配置
@@ -438,54 +450,3 @@ MIT License
 - LangChain社区
 - Vue.js社区
 - D3.js社区
-
----
-
-## 🔧 版本更新日志
-
-### v4.1.3 (2026-01-15) - 紧急修复
-
-**🚨 关键修复**:
-- ✅ 修复ORM关系映射错误（ResearchGap-GeneratedCode外键冲突）
-- ✅ 明确指定foreign_keys参数解决循环引用
-- ✅ 创建数据库修复工具 `fix_database.py`
-
-**新增文档**:
-- `ORM_FIX.md` - ORM错误完整修复指南
-
-**重要**: 需要重新创建数据库才能生效！详见 `ORM_FIX.md`
-
-### v4.1.2 (2026-01-15)
-
-**紧急修复**:
-- ✅ 修复研究空白加载失败问题
-- ✅ API现在返回所有研究空白，而不仅仅是高优先级的
-- ✅ 添加数据库诊断工具 `check_gaps.py`
-- ✅ 改进空数据处理和错误提示
-
-**新增工具**:
-- `check_gaps.py` - 数据库检查和测试数据生成工具
-- `test_api.py` - API自动化测试脚本
-- `GAP_LOADING_FIX.md` - 研究空白问题修复指南
-
-### v4.1.1 (2026-01-15)
-
-**修复内容**:
-- ✅ 创建requirements.txt，完整列出所有Python依赖
-- ✅ 创建.env.example环境变量配置示例
-- ✅ 修复前后端API接口不匹配问题
-- ✅ 更新论文管理页面，适配数据库驱动架构
-- ✅ 更新分析页面，支持基于论文ID的分析
-- ✅ 添加主题聚类API接口
-- ✅ 修复WebSocket连接配置
-
-**改进**:
-- 前端完全迁移到数据库驱动架构
-- 所有API接口统一使用RESTful风格
-- 优化错误处理和用户提示
-
----
-
-**当前版本**: v4.1.3
-**最后更新**: 2026-01-15
-**状态**: 🚨 需要重新创建数据库

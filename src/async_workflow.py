@@ -126,7 +126,7 @@ class AsyncWorkflowEngine:
 
                 # 保存到数据库（传递完整路径用于计算哈希）
                 # create_paper返回字典，不是对象
-                paper_record_dict = self._save_paper_to_db(paper, pdf_path)
+                paper_record_dict = self._save_paper_to_db(paper, pdf_path, user_id=user_id)
                 paper_id = paper_record_dict['id']
                 result['paper_id'] = paper_id
             else:
@@ -205,12 +205,13 @@ class AsyncWorkflowEngine:
         )
         return paper
 
-    def _save_paper_to_db(self, paper: ParsedPaper, pdf_path: str = None):
+    def _save_paper_to_db(self, paper: ParsedPaper, pdf_path: str = None, user_id: int = None):
         """保存论文到数据库
 
         Args:
             paper: 解析后的论文对象
             pdf_path: PDF文件的完整路径（用于计算哈希），如果为None则使用paper.filename
+            user_id: 用户ID（用于用户隔离）
         """
         # 使用传入的完整路径，或者使用paper.filename
         filepath_for_hash = pdf_path if pdf_path else paper.filename
@@ -237,7 +238,7 @@ class AsyncWorkflowEngine:
             'keywords': paper.metadata.keywords
         }
 
-        return self.db.create_paper(paper_data)
+        return self.db.create_paper(paper_data, user_id=user_id)
 
     async def _analyze_paper_async(
         self,
